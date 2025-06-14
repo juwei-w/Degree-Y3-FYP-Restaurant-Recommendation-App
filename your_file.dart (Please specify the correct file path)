@@ -1,0 +1,299 @@
+```dart
+// ...existing code...
+Widget _buildCategoryTags() {
+    // Ensure 'categories' is a List<String> for type safety with Text widget
+    final List<dynamic> rawCategories = widget.restaurant['categories'] ?? ['HALAL', 'VEGETARIAN', 'FAST FOOD'];
+    final List<String> categories = rawCategories.map((category) => category.toString()).toList();
+    
+    if (categories.isEmpty) {
+      return SizedBox.shrink(); // Don't display anything if there are no categories
+    }
+
+    return Wrap(
+      spacing: 12.0, // Horizontal space between tags
+      runSpacing: 8.0, // Vertical space between lines of tags
+      children: categories.map<Widget>((category) {
+        return Container(
+          // Applying the specified style for padding and decoration
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.grey[200], // As per Figma, or use theme color if specified
+            borderRadius: BorderRadius.circular(20), // Consistent with Figma
+          ),
+          child: Text(
+            category.toUpperCase(), // Display categories in uppercase
+            style: TextStyle(
+              fontFamily: 'SofiaSans', // Ensure this font is in your assets and pubspec.yaml
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey[700], // As per Figma, or use theme color
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+// ...existing code...
+```
+                            fontSize: 14, // Font size from Figma
+                            fontFamily: 'SofiaSans', // Font from Figma
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1, // Price level is usually short
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    )
+                  else if (priceLevelText == "N/A") // Handle N/A case specifically if needed
+                     Text(
+                          "N/A", // Or "Price: N/A"
+                          style: TextStyle(
+                            color: Colors.grey[700],
+                            fontSize: 14,
+                            fontFamily: 'SofiaSans',
+                            fontWeight: FontWeight.w500,
+                          ),
+                     ),
+                  // If address was removed, ensure spacing is still appropriate or remove this SizedBox
+                  // If price level is not available, this SizedBox might be too large or small
+                  // Adjust based on whether price level is shown or not.
+                  // If price level is always expected or a placeholder is shown, this SizedBox is fine.
+                  const SizedBox(height: 12), // Spacing from Figma
+
+                  // Categories as chips
+                  if (restaurant['categories'] != null && 
+                      restaurant['categories'] is List &&
+                      (restaurant['categories'] as List).isNotEmpty)
+                    Wrap(
+                      spacing: 8, // Spacing from Figma
+                      runSpacing: 4, // Vertical spacing for wrapped chips
+                      children: (restaurant['categories'] as List).map<Widget>((categoryItem) {
+                          final String categoryText = categoryItem.toString().toUpperCase(); 
+
+                          return Chip(
+                                label: Text(
+                                  categoryText,
+                                  style: const TextStyle(
+                                    fontSize: 12, // Font size from Figma
+                                    fontFamily: 'SofiaSans', // Font from Figma
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFFFF7F59), // Text color from Figma
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8), // Radius from Figma
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2), // Padding from Figma
+                                backgroundColor: Color(0xFFFF7F59).withOpacity(0.1), // Background color from Figma
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap, // To make chip size tighter
+                              );
+                        }).toList(),
+                    )
+                  else
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(20),
+                    topRight: Radius.circular(20),
+                  ),
+                  child: photoUrl != null
+                      ? Image.network(
+                          photoUrl,
+                          height: 140, // Consistent with Figma
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Image.asset('assets/images/profile.png', height: 140, width: double.infinity, fit: BoxFit.cover), // Fallback image from Figma assets
+                        )
+                      : Image.asset('assets/images/profile.png', height: 140, width: double.infinity, fit: BoxFit.cover), // Default image from Figma assets
+                ),
+                // Rating badge (top left)
+                Positioned(
+                  top: 12,
+                  left: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), // Padding from Figma
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.85), // Color and opacity from Figma
+                      borderRadius: BorderRadius.circular(12), // Radius from Figma
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min, // Important for Row inside Positioned
+                      children: [
+                        Text(
+                          restaurant['rating']?.toString() ?? '-', // Use toString for rating
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: Colors.black, // Color from Figma
+                            fontFamily: 'SofiaSans', // Font from Figma
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        const Icon(Icons.star, color: Colors.amber, size: 16), // Icon style from Figma
+                        if (restaurant['number_of_ratings'] != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4.0),
+                            child: Text(
+                              '(${restaurant['number_of_ratings']})',
+                              style: const TextStyle(
+                                color: Colors.grey, // Color from Figma
+                                fontSize: 12,
+                                fontFamily: 'SofiaSans', // Font from Figma
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                // Favourite button (top right)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20), // Consistent with Figma
+                      onTap: () {
+                        // Ensure setState is called within a StatefulWidget
+                        // and favouriteRestaurantIds is managed correctly
+                        setState(() {
+                          if (isFavourite) {
+                            favouriteRestaurantIds.remove(restaurantId);
+                          } else {
+                            favouriteRestaurantIds.add(restaurantId);
+                          }
+                        });
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white, // Background from Figma
+                          shape: BoxShape.circle,
+                          boxShadow: [ // Shadow from Figma
+                            BoxShadow(
+                              color: Colors.black12,
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        padding: const EdgeInsets.all(8), // Padding from Figma
+                        child: Icon(
+                          isFavourite ? Icons.favorite : Icons.favorite_border,
+                          color: isFavourite ? Color(0xFFFF7F59) : Colors.grey[400], // Colors from Figma
+                          size: 24, // Size from Figma
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16), // Padding from Figma
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Restaurant name
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          restaurant['name'] ?? 'Unknown Restaurant', // Fallback text
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18, // Font size from Figma
+                            fontFamily: 'SofiaSans', // Font from Figma
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      // const SizedBox(width: 4), // If verified icon is used
+                      // Icon(Icons.verified, color: Color(0xFF2DC653), size: 18), // Verified icon from Figma
+                    ],
+                  ),
+                  const SizedBox(height: 8), // Spacing from Figma
+
+                  // Display Price Level instead of Address
+                  if (priceLevelText != "Price not available" && priceLevelText != "N/A" && priceLevelText != "Price info unknown") // Conditionally display price level
+                    Row(
+                      children: [
+                        Icon(Icons.attach_money, color: Colors.grey[700], size: 16), // Icon style from Figma
+                        const SizedBox(width: 4),
+                        Text(
+                          priceLevelText,
+                          style: TextStyle(
+                            color: Colors.grey[700], // Color from Figma
+                            fontSize: 14, // Font size from Figma
+                            fontFamily: 'SofiaSans', // Font from Figma
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1, // Price level is usually short
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    )
+                  else if (priceLevelText == "N/A") // Handle N/A case specifically if needed
+                     Text(
+                          "N/A", // Or "Price: N/A"
+                          style: TextStyle(
+                            color: Colors.grey[700],
+                            fontSize: 14,
+                            fontFamily: 'SofiaSans',
+                            fontWeight: FontWeight.w500,
+                          ),
+                     ),
+                  // If address was removed, ensure spacing is still appropriate or remove this SizedBox
+                  // If price level is not available, this SizedBox might be too large or small
+                  // Adjust based on whether price level is shown or not.
+                  // If price level is always expected or a placeholder is shown, this SizedBox is fine.
+                  const SizedBox(height: 12), // Spacing from Figma
+
+                  // Categories as chips
+                  if (restaurant['categories'] != null && 
+                      restaurant['categories'] is List &&
+                      (restaurant['categories'] as List).isNotEmpty)
+                    Wrap(
+                      spacing: 8, // Spacing from Figma
+                      runSpacing: 4, // Vertical spacing for wrapped chips
+                      children: (restaurant['categories'] as List).map<Widget>((categoryItem) {
+                          final String categoryText = categoryItem.toString().toUpperCase(); 
+
+                          return Chip(
+                                label: Text(
+                                  categoryText,
+                                  style: const TextStyle(
+                                    fontSize: 12, // Font size from Figma
+                                    fontFamily: 'SofiaSans', // Font from Figma
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFFFF7F59), // Text color from Figma
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8), // Radius from Figma
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2), // Padding from Figma
+                                backgroundColor: Color(0xFFFF7F59).withOpacity(0.1), // Background color from Figma
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap, // To make chip size tighter
+                              );
+                        }).toList(),
+                    )
+                  else
+                    SizedBox(height: 0), // If no categories, ensure no extra space is taken unless intended by Figma
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+// ...existing code...
+```
