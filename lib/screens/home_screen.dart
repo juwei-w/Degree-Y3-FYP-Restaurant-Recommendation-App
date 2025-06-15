@@ -47,7 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadRestaurantData() async {
-    final String jsonString = await rootBundle.loadString('assets/restaurant_data/restaurant_data_1.json');
+    final String jsonString = await rootBundle.loadString('assets/restaurant_data/restaurant_data_2.json');
     final List<dynamic> jsonData = json.decode(jsonString);
     setState(() {
       restaurants = jsonData
