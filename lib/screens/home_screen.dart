@@ -47,7 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadRestaurantData() async {
-    final String jsonString = await rootBundle.loadString('assets/restaurant_data/restaurant_data_2.json');
+    final String jsonString = await rootBundle.loadString('assets/restaurant_data/django_data_2.json');
     final List<dynamic> jsonData = json.decode(jsonString);
     setState(() {
       restaurants = jsonData
@@ -623,10 +623,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildRestaurantCard(Map<String, dynamic> restaurant) {
     String? photoUrl;
-    if (restaurant['photo_references'] != null &&
-        restaurant['photo_references'] is List &&
-        (restaurant['photo_references'] as List).isNotEmpty) {
-      final photoRef = restaurant['photo_references'][0];
+    if (restaurant['photos'] != null &&
+        restaurant['photos'] is List &&
+        (restaurant['photos'] as List).isNotEmpty) {
+      final photoRef = restaurant['photos'][0];
       photoUrl =
           'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=$photoRef&key=$YOUR_GOOGLE_MAPS_API_KEY';
     }

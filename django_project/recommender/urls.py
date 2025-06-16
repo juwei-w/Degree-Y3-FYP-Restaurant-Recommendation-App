@@ -1,8 +1,8 @@
 # recommender/urls.py
 
 from django.urls import path
-from . import views
+from . import get_restaurants
 
 urlpatterns = [
-    path('get_restaurants/', views.get_restaurants_api, name='api_get_restaurants'),
+    path('get_restaurants/', get_restaurants.get_restaurants_api, name='api_get_restaurants'),
 ]

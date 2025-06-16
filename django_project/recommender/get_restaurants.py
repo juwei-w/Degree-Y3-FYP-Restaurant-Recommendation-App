@@ -4,6 +4,7 @@ import googlemaps
 import re
 from fuzzywuzzy import process
 import sys # For stderr printing
+import os
 
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.http import require_GET
@@ -35,6 +36,19 @@ CATEGORY_DICT = {
     "buffet": ["buffet", "all-you-can-eat", "unlimited food", "buffet-style"],
     "fast-food": ["fast food", "drive-thru", "mcdonald's", "kfc", "burger king", "a&w", "taco bell", "subway", "pizza hut", "domino's", "texas chicken"],
 }
+
+def save_to_json(data, base_filename="map_output", folder_name="../assets/restaurant_data"):
+    if not os.path.exists(folder_name):
+        os.makedirs(folder_name)
+    
+    n = 1
+    while os.path.exists(os.path.join(folder_name, f"{base_filename}_{n}.json")):
+        n += 1
+    filename = os.path.join(folder_name, f"{base_filename}_{n}.json")
+
+    with open(filename, 'w', encoding='utf-8') as file:
+        json.dump(data, file, indent=4, ensure_ascii=False)
+    return filename
 
 def get_keyword_category(details, category_dict, search_keyword):
     extracted_categories = set()
@@ -262,9 +276,14 @@ def get_restaurants_api(request: HttpRequest):
             user_radius=radius, 
             keyword=keyword_str
         )
+
+        # If you still want to save it to a file as well:
+        filename = save_to_json(recommended_restaurants, base_filename="django_data")
+        print(f"Data also saved to {filename}", file=sys.stderr) # Debug to stderr
         
         print(f"Django API: Found {len(recommended_restaurants)} restaurants.", file=sys.stderr)
         return JsonResponse(recommended_restaurants, safe=False) # safe=False because it's a list
+    
 
     except ValueError:
         return JsonResponse({"error": "Invalid parameter types. Latitude/Longitude must be float, Radius must be integer."}, status=400)

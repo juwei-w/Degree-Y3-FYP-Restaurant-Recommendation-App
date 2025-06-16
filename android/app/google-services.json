@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "326120752538",
+    "project_id": "restaurant-recommendatio-24c81",
+    "storage_bucket": "restaurant-recommendatio-24c81.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:326120752538:android:ae84a2cd29b2821b4ca623",
+        "android_client_info": {
+          "package_name": "com.example.smart_food_v1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpk7NPDI2-Xn0nT0X0Xvx0MeHV5FmdkM8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

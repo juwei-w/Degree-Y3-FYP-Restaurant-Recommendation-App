@@ -1,14 +1,19 @@
+// filepath: lib/screens/verification_screen.dart
+import 'dart:async'; // For Timer
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
-import 'select_preferences_screen.dart'; // Import the SelectPreferenceScreen
+// Removed: import 'package:flutter/services.dart'; // No longer using OTP text fields
+import 'select_preferences_screen.dart';
+import 'login_screen.dart'; // For back navigation if user wants to cancel
 
 class VerificationScreen extends StatefulWidget {
-  final String email;
-  
+  final User user;
+  final String name;
+
   const VerificationScreen({
-    super.key, 
-    required this.email,
+    super.key,
+    required this.user,
+    required this.name,
   });
 
   @override
@@ -16,288 +21,237 @@ class VerificationScreen extends StatefulWidget {
 }
 
 class _VerificationScreenState extends State<VerificationScreen> {
-  final List<TextEditingController> _controllers = List.generate(
-    6, 
-    (index) => TextEditingController(),
-  );
-  
-  final List<FocusNode> _focusNodes = List.generate(
-    6, 
-    (index) => FocusNode(),
-  );
+  bool _isLoading = false;
+  Timer? _timer; // Timer to periodically check email verification status
 
   @override
   void initState() {
     super.initState();
-        
-    // Set focus to the third digit
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      FocusScope.of(context).requestFocus(_focusNodes[0]);
+    // Start a timer to periodically check if the email has been verified
+    _timer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      await _checkEmailVerified();
     });
   }
 
   @override
   void dispose() {
-    for (var controller in _controllers) {
-      controller.dispose();
-    }
-    for (var node in _focusNodes) {
-      node.dispose();
-    }
+    _timer?.cancel(); // Cancel the timer when the widget is disposed
     super.dispose();
+  }
+
+  Future<void> _checkEmailVerified({bool manualCheck = false}) async {
+    if (mounted) {
+      setState(() {
+        if (manualCheck) _isLoading = true;
+      });
+    }
+
+    await widget.user.reload(); // Refresh user data from Firebase
+    final User? currentUser = FirebaseAuth.instance.currentUser; // Get the latest user status
+
+    if (currentUser != null && currentUser.emailVerified) {
+      _timer?.cancel(); // Stop the timer
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SelectPreferencesScreen(
+              user: currentUser, // Pass the verified user
+              name: widget.name,
+            ),
+          ),
+        );
+      }
+    } else {
+      if (manualCheck && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Email not verified yet. Please check your inbox and click the link.'),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
+      }
+    }
+    if (mounted && manualCheck) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _resendVerificationEmail() async {
+    if (_isLoading) return;
+    setState(() {
+      _isLoading = true;
+    });
+    try {
+      await widget.user.sendEmailVerification();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verification email resent. Please check your inbox.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
+        String message = "Could not resend verification email.";
+        if (e.code == 'too-many-requests') {
+          message = "Too many requests. Please try again later.";
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } catch (e) {
+        if (mounted) {
+             ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text('An unexpected error occurred while resending email.'),
+                    backgroundColor: Colors.redAccent,
+                ),
+            );
+        }
+    }
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Adhering to Figma Design Guidelines
     return Scaffold(
-      backgroundColor: const Color(0xFFFFF5F2),
+      backgroundColor: const Color(0xFFFFF5F2), // Consistent background
       body: SafeArea(
         child: Stack(
           children: [
-            // Background circles (matching RegisterScreen)
-            Positioned( // small orange circle
-              top: 10,
-              left: -50,
-              child: Container(
-                width: 100,
-                height: 100,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFF6F3C), // deep orange
-                  shape: BoxShape.circle,
-                ),
-              ),
+            // Background decorative circles (consistent with other screens)
+            Positioned(
+              top: 10, left: -50,
+              child: Container(width: 100, height: 100, decoration: const BoxDecoration(color: Color(0xFFFF6F3C), shape: BoxShape.circle)),
             ),
-            Positioned( // small white circle
-              top: 0,
-              left: -40,
-              child: Container(
-                width: 60,
-                height: 60,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFFF5F2), // background color
-                  shape: BoxShape.circle,
-                ),
-              ),
+            Positioned(
+              top: 0, left: -40,
+              child: Container(width: 60, height: 60, decoration: const BoxDecoration(color: Color(0xFFFFF5F2), shape: BoxShape.circle)),
             ),
-            Positioned( // large light orange circle
-              top: -80,
-              left: 0,
-              child: Container(
-                width: 180,
-                height: 180,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFFBFAE), // light orange
-                  shape: BoxShape.circle,
-                ),
-              ),
+            Positioned(
+              top: -80, left: 0,
+              child: Container(width: 180, height: 180, decoration: const BoxDecoration(color: Color(0xFFFFBFAE), shape: BoxShape.circle)),
             ),
-            Positioned( // large orange circle
-              top: -40,
-              right: -80,
-              child: Container(
-                width: 160,
-                height: 160,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFF6F3C), // deep orange
-                  shape: BoxShape.circle,
-                ),
-              ),
+            Positioned(
+              top: -40, right: -80,
+              child: Container(width: 160, height: 160, decoration: const BoxDecoration(color: Color(0xFFFF6F3C), shape: BoxShape.circle)),
             ),
-            
-            // Main content
-            SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 40),
-                    
-                    // Back button
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-                        onPressed: () => Navigator.pop(context),
-                      ),
+            Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 40),
+                  // Back button - navigates to LoginScreen if user wants to cancel/go back
+                  Container(
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                    child: IconButton(
+                      icon: const Icon(Icons.arrow_back_ios_new, size: 20),
+                      onPressed: () {
+                        _timer?.cancel();
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(builder: (context) => const LoginScreen()),
+                        );
+                      },
                     ),
-                    
-                    const SizedBox(height: 80),
-                    
-                    // Verification heading
-                    const Text(
-                      'Verification Code',
-                      style: TextStyle(
-                        fontFamily: 'SofiaSans',
-                        fontSize: 40,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  ),
+                  const SizedBox(height: 60), // Spacing as per Figma
+                  const Text(
+                    'Verify Your Email', // Title updated
+                    style: TextStyle(
+                      fontFamily: 'SofiaSans',
+                      fontSize: 32, // Match Figma
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87, // Match Figma
                     ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Verification instruction
-                    Text(
-                      'Please type the verification code sent to\n${widget.email}',
-                      style: const TextStyle(
-                        fontFamily: 'SofiaSans',
-                        fontSize: 16,
-                        color: Colors.grey,
-                      ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'A verification link has been sent to your email address:\n${widget.user.email}\n\nPlease click the link to verify your account. This window will automatically update once verified.',
+                    textAlign: TextAlign.start,
+                    style: const TextStyle(
+                      fontFamily: 'SofiaSans',
+                      fontSize: 16, // Match Figma
+                      color: Colors.grey, // Match Figma
+                      height: 1.5,
                     ),
-                    
-                    const SizedBox(height: 40),
-                    
-                    // Verification code input fields
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: List.generate(
-                        6,
-                        (index) => SizedBox(
-                          width: 50,
-                          height: 60,
-                          child: TextField(
-                            controller: _controllers[index],
-                            focusNode: _focusNodes[index],
-                            keyboardType: TextInputType.number,
-                            textAlign: TextAlign.center,
-                            maxLength: 1,
-                            decoration: InputDecoration(
-                              counterText: '',
-                              filled: true,
-                              fillColor: Colors.white,
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: const BorderSide(color: Color(0xFFFF7F59), width: 1),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: const BorderSide(
-                                  color: Color(0xFFFF7F59),
-                                  width: 1,
-                                ),
-                              ),
-                            ),
-                            style: const TextStyle(
-                              fontFamily: 'SofiaSans',
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            onChanged: (value) {
-                              if (value.length == 1 && index < 5) {
-                                _focusNodes[index + 1].requestFocus();
-                              }
-                            },
-                            onSubmitted: (_) {
-                              if (index == 5) {
-                                // When last field is submitted, trigger verify
-                                String code = _controllers.map((c) => c.text).join();
-                                if (code.length == 6) {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => const SelectPreferencesScreen(),
-                                    ),
-                                  );
-                                }
-                              } else if (_controllers[index].text.isEmpty && index > 0) {
-                                _focusNodes[index - 1].requestFocus();
-                              }
-                            },
-                            onEditingComplete: () {},
-                            onTap: () {
-                              _controllers[index].selection = TextSelection(
-                                baseOffset: 0,
-                                extentOffset: _controllers[index].text.length,
-                              );
-                            },
-                            inputFormatters: [
-                              TextInputFormatter.withFunction((oldValue, newValue) {
-                                if (oldValue.text.isNotEmpty && newValue.text.isEmpty && index > 0) {
-                                  _focusNodes[index - 1].requestFocus();
-                                }
-                                return newValue;
-                              })
-                            ],
-                          ),
-                        ),
+                  ),
+                  const SizedBox(height: 40), // Spacing
+                  Center(
+                    child: _isLoading && !_timer!.isActive // Show loading only on manual check
+                        ? const CircularProgressIndicator(color: Color(0xFFFF7F59))
+                        : const Icon(Icons.mark_email_read_outlined, size: 80, color: Color(0xFFFF7F59)), // Placeholder icon
+                  ),
+                  const SizedBox(height: 30),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        "Didn't receive the email?", // Match Figma
+                        style: TextStyle(fontFamily: 'SofiaSans', color: Colors.grey),
                       ),
-                    ),
-                    
-                    const SizedBox(height: 24),
-                    
-                    // Resend code
-                    Center(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text(
-                            'I don\'t receive a code!',
-                            style: TextStyle(
-                              fontFamily: 'SofiaSans',
-                              color: Colors.grey,
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              // Resend code logic
-                            },
-                            child: const Text(
-                              'Please resend',
-                              style: TextStyle(
-                                fontFamily: 'SofiaSans',
-                                color: Color(0xFFFF7F59),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 80),
-                    
-                    // Verify button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          // Verification logic
-                          String code = _controllers.map((c) => c.text).join();
-                          if (code.length == 6) {
-                            // Navigate to SelectPreferencesScreen after verification
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const SelectPreferencesScreen(),
-                              ),
-                            );
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF7F59),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                        ),
+                      TextButton(
+                        onPressed: _isLoading ? null : _resendVerificationEmail,
                         child: const Text(
-                          'VERIFY',
+                          'Resend Email', // Match Figma
                           style: TextStyle(
                             fontFamily: 'SofiaSans',
-                            fontSize: 18,
+                            color: Color(0xFFFF7F59), // Match Figma
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
+                    ],
+                  ),
+                  const Spacer(), // Pushes button to the bottom
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56, // Match Figma
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : () => _checkEmailVerified(manualCheck: true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF7F59), // Match Figma
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30), // Match Figma
+                        ),
+                      ),
+                      child: _isLoading && _timer!.isActive // Show "Checking..." if timer is active and button is pressed
+                          ? const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3)),
+                                SizedBox(width: 10),
+                                Text('CHECKING STATUS...', style: TextStyle(fontFamily: 'SofiaSans', fontSize: 18, fontWeight: FontWeight.w600)),
+                              ],
+                            )
+                          : const Text(
+                              'REFRESH STATUS', // Button text updated
+                              style: TextStyle(
+                                fontFamily: 'SofiaSans',
+                                fontSize: 18, // Match Figma
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 20), // Bottom padding
+                ],
               ),
             ),
           ],
