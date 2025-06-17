@@ -1,10 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:smart_food_v1/screens/register_screen.dart'; // For navigation
+import 'dart:developer'; // For log()
+import 'register_screen.dart'; // For navigation
 import 'welcome_screen.dart';
 import 'home_screen.dart';
-// import 'admin_home_screen.dart'; // Admin home screen import can remain if you plan to use it later
-import 'package:logger/logger.dart';
+import 'admin_home_screen.dart'; // Admin home screen import can remain if you plan to use it later
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -18,9 +18,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
-  bool _isUserRole = true; // Default to User - UI will reflect this, logic will ignore for now
   bool _isLoading = false; // For loading indicator
-  final _logger = Logger(); // Assuming you have a logger
+  String? _errorMessage; // For error message display
+  bool isAdminRole = false; // false = user, true = admin
 
   @override
   void dispose() {
@@ -29,146 +29,251 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _signInWithEmailAndPassword() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+  // Future<void> _signInWithEmailAndPassword() async {
+  //   if (!_formKey.currentState!.validate()) {
+  //     return;
+  //   }
+  //   setState(() {
+  //     _isLoading = true;
+  //   });
+
+  //   try {
+  //     UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+  //       email: _emailController.text.trim(),
+  //       password: _passwordController.text.trim(),
+  //     );
+
+  //     User? user = userCredential.user;
+
+  //     if (user != null) {
+  //       await user.reload(); // Crucial: Get the latest user status from Firebase
+  //       _logger.i("User signed in: ${user.uid}, Email Verified: ${user.emailVerified}");
+
+  //       if (user.emailVerified) {
+  //         _logger.i("Email is verified. Navigating to HomeScreen.");
+  //         if (mounted) {
+  //           // Navigate to your main app screen (e.g., HomeScreen)
+  //           // Example:
+  //           Navigator.of(context).pushReplacement(
+  //             MaterialPageRoute(builder: (context) => const HomeScreen()),
+  //           );
+  //         }
+  //       } else {
+  //         _logger.w("Email not verified for user: ${user.email}. Deleting unverified account.");
+  //         String? userEmailForMessage = user.email; // Store email for message before user object becomes invalid
+
+  //         // Inform the user before deleting
+  //         if (mounted) {
+  //           await showDialog(
+  //             context: context,
+  //             barrierDismissible: false, // User must acknowledge
+  //             builder: (BuildContext dialogContext) {
+  //               return AlertDialog(
+  //                 title: const Text('Email Not Verified'),
+  //                 content: Text(
+  //                   'Your email address ($userEmailForMessage) has not been verified. '
+  //                   'This unverified registration will now be removed. '
+  //                   'Please register again and complete the email verification step to access the app.',
+  //                 ),
+  //                 actions: <Widget>[
+  //                   TextButton(
+  //                     child: const Text('OK'),
+  //                     onPressed: () {
+  //                       Navigator.of(dialogContext).pop();
+  //                     },
+  //                   ),
+  //                 ],
+  //               );
+  //             },
+  //           );
+  //         }
+
+  //         try {
+  //           await user.delete();
+  //           _logger.i('Unverified user ($userEmailForMessage) deleted successfully from Firebase Auth.');
+  //         } catch (e) {
+  //           _logger.e('Error deleting unverified user ($userEmailForMessage): $e. The user might have already been deleted or requires re-authentication for deletion.');
+  //           // Even if deletion fails, ensure sign out
+  //         }
+
+  //         // Always sign out, as the user should not remain in a partially authenticated state
+  //         await FirebaseAuth.instance.signOut();
+  //         _logger.i('User signed out after unverified login attempt.');
+
+  //         if (mounted) {
+  //           // Navigate back to Login or preferably Register screen
+  //           Navigator.of(context).pushReplacement(
+  //             MaterialPageRoute(builder: (context) => const RegisterScreen()), // Or LoginScreen
+  //           );
+  //         }
+  //       }
+  //     } else {
+  //       _logger.w("Sign in attempt resulted in a null user.");
+  //       // Handle null user case, though typically signInWithEmailAndPassword throws if user is null
+  //        if (mounted) {
+  //           ScaffoldMessenger.of(context).showSnackBar(
+  //             const SnackBar(content: Text('Login failed. Please try again.'), backgroundColor: Colors.red),
+  //           );
+  //        }
+  //     }
+  //   } on FirebaseAuthException catch (e) {
+  //     _logger.e("FirebaseAuthException during sign in: ${e.code} - ${e.message}");
+  //     String errorMessage = 'An error occurred. Please try again.';
+  //     if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-credential') {
+  //       errorMessage = 'Invalid email or password.';
+  //     } else if (e.code == 'too-many-requests') {
+  //       errorMessage = 'Too many login attempts. Please try again later.';
+  //     }
+  //     // ... handle other specific Firebase Auth errors
+  //     if (mounted) {
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+  //       );
+  //     }
+  //   } catch (e) {
+  //     _logger.e("Generic error during sign in: $e");
+  //     if (mounted) {
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         const SnackBar(content: Text('An unexpected error occurred. Please try again.'), backgroundColor: Colors.red),
+  //       );
+  //     }
+  //   } finally {
+  //     if (mounted) {
+  //       setState(() {
+  //         _isLoading = false;
+  //       });
+  //     }
+  //   }
+  // }
+
+  Future<void> _login() async {
     setState(() {
       _isLoading = true;
+      _errorMessage = null;
     });
 
     try {
-      UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+        password: _passwordController.text,
       );
+      final user = userCredential.user;
 
-      User? user = userCredential.user;
+      // Email verification check
+      if (user != null && !user.emailVerified) {
+        final userEmailForMessage = user.email ?? 'your account'; // Get email for the message
 
-      if (user != null) {
-        await user.reload(); // Crucial: Get the latest user status from Firebase
-        _logger.i("User signed in: ${user.uid}, Email Verified: ${user.emailVerified}");
+        // Attempt to delete the unverified user
+        try {
+          await user.delete();
+        } catch (e) {
+          // Log deletion error, but proceed to sign out and inform user
+          log('Error deleting unverified user $userEmailForMessage: $e');
+        }
 
-        if (user.emailVerified) {
-          _logger.i("Email is verified. Navigating to HomeScreen.");
-          if (mounted) {
-            // Navigate to your main app screen (e.g., HomeScreen)
-            // Example:
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (context) => const HomeScreen()),
-            );
+        // Sign out the user
+        await FirebaseAuth.instance.signOut();
+
+        // Show Figma-compliant dialog to inform the user
+        if (mounted) {
+          await showDialog(
+            context: context,
+            barrierDismissible: false, // User must acknowledge
+            builder: (BuildContext dialogContext) {
+              return AlertDialog(
+                title: const Text(
+                  'Email Not Verified',
+                  style: TextStyle(
+                    fontFamily: 'SofiaSans', // Figma Guideline: Font
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                content: Text(
+                  'Please verify your email before logging in. '
+                  'This account ($userEmailForMessage) will be removed. '
+                  'Please register again and complete the email verification step to access the app.',
+                  style: const TextStyle(fontFamily: 'SofiaSans'), // Figma Guideline: Font
+                ),
+                actions: <Widget>[
+                  TextButton(
+                    child: const Text(
+                      'OK',
+                      style: TextStyle(
+                        fontFamily: 'SofiaSans', // Figma Guideline: Font
+                        color: Color(0xFFFF7F59), // Figma Guideline: Color
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                    },
+                  ),
+                ],
+              );
+            },
+          );
+        }
+        setState(() {
+          _isLoading = false; // Stop loading indicator
+        });
+        return; // Stop further execution of login
+      }
+
+      // If email is verified, proceed with admin check and navigation
+      final idTokenResult = await user?.getIdTokenResult(true);
+      final isAdmin = idTokenResult?.claims?['admin'] == true;
+
+      if (context.mounted) {
+        if (isAdminRole) {
+          // Admin role selected: Only admins allowed
+          if (isAdmin) {
+            _navigateToHomeBasedOnRole(context, isAdmin: true);
+          } else {
+            setState(() {
+              _errorMessage = 'This account is not admin.';
+            });
           }
         } else {
-          _logger.w("Email not verified for user: ${user.email}. Deleting unverified account.");
-          String? userEmailForMessage = user.email; // Store email for message before user object becomes invalid
-
-          // Inform the user before deleting
-          if (mounted) {
-            await showDialog(
-              context: context,
-              barrierDismissible: false, // User must acknowledge
-              builder: (BuildContext dialogContext) {
-                return AlertDialog(
-                  title: const Text('Email Not Verified'),
-                  content: Text(
-                    'Your email address ($userEmailForMessage) has not been verified. '
-                    'This unverified registration will now be removed. '
-                    'Please register again and complete the email verification step to access the app.',
-                  ),
-                  actions: <Widget>[
-                    TextButton(
-                      child: const Text('OK'),
-                      onPressed: () {
-                        Navigator.of(dialogContext).pop();
-                      },
-                    ),
-                  ],
-                );
-              },
-            );
-          }
-
-          try {
-            await user.delete();
-            _logger.i('Unverified user ($userEmailForMessage) deleted successfully from Firebase Auth.');
-          } catch (e) {
-            _logger.e('Error deleting unverified user ($userEmailForMessage): $e. The user might have already been deleted or requires re-authentication for deletion.');
-            // Even if deletion fails, ensure sign out
-          }
-
-          // Always sign out, as the user should not remain in a partially authenticated state
-          await FirebaseAuth.instance.signOut();
-          _logger.i('User signed out after unverified login attempt.');
-
-          if (mounted) {
-            // Optionally, show a SnackBar after dialog dismissal if needed,
-            // but the dialog is usually sufficient.
-            // ScaffoldMessenger.of(context).showSnackBar(
-            //   SnackBar(
-            //     content: Text('Previous registration for $userEmailForMessage cleared. Please register again.'),
-            //     backgroundColor: Colors.orange,
-            //   ),
-            // );
-
-            // Navigate back to Login or preferably Register screen
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (context) => const RegisterScreen()), // Or LoginScreen
-            );
-          }
+          // User role selected: Allow both admin and user to access user home
+          _navigateToHomeBasedOnRole(context, isAdmin: false);
         }
-      } else {
-        _logger.w("Sign in attempt resulted in a null user.");
-        // Handle null user case, though typically signInWithEmailAndPassword throws if user is null
-         if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Login failed. Please try again.'), backgroundColor: Colors.red),
-            );
-         }
       }
     } on FirebaseAuthException catch (e) {
-      _logger.e("FirebaseAuthException during sign in: ${e.code} - ${e.message}");
-      String errorMessage = 'An error occurred. Please try again.';
+      String message;
       if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-credential') {
-        errorMessage = 'Invalid email or password.';
-      } else if (e.code == 'too-many-requests') {
-        errorMessage = 'Too many login attempts. Please try again later.';
+        message = 'Incorrect email or password.';
+      } else if (e.code == 'user-disabled') {
+        message = 'This account has been disabled.';
+      } else {
+        message = e.message ?? 'An unknown error occurred.';
       }
-      // ... handle other specific Firebase Auth errors
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
-        );
-      }
+      setState(() {
+        _errorMessage = message;
+      });
     } catch (e) {
-      _logger.e("Generic error during sign in: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('An unexpected error occurred. Please try again.'), backgroundColor: Colors.red),
-        );
-      }
+      setState(() {
+        _errorMessage = 'Unknown error: $e';
+      });
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
-  // This function is not used by _loginUser for navigation currently
-  // void _navigateToHomeBasedOnRole(BuildContext context) {
-  //   if (_isUserRole) {
-  //     Navigator.pushReplacement(
-  //       context,
-  //       MaterialPageRoute(builder: (context) => const HomeScreen()),
-  //     );
-  //   } else {
-  //     Navigator.pushReplacement(
-  //       context,
-  //       MaterialPageRoute(builder: (context) => const AdminHomeScreen()),
-  //     );
-  //   }
-  // }
+  void _navigateToHomeBasedOnRole(BuildContext context, {required bool isAdmin}) {
+    if (isAdmin) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const AdminHomeScreen()),
+      );
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -366,7 +471,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         alignment: Alignment.centerRight,
                         child: TextButton(
                           onPressed: () {
-                            // TODO: Implement forgot password functionality
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('Forgot password clicked (Not implemented yet)')),
                             );
@@ -400,7 +504,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               GestureDetector(
                                 onTap: () {
                                   setState(() {
-                                    _isUserRole = true;
+                                    isAdminRole = false; // User role
                                   });
                                 },
                                 child: Container(
@@ -409,14 +513,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                     vertical: 12,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: _isUserRole ? const Color(0xFFFF7F59) : Colors.transparent,
+                                    color: !isAdminRole ? const Color(0xFFFF7F59) : Colors.transparent,
                                     borderRadius: BorderRadius.circular(30),
                                   ),
                                   child: Text(
                                     'User',
                                     style: TextStyle(
                                       fontFamily: 'SofiaSans',
-                                      color: _isUserRole ? Colors.white : Colors.grey,
+                                      color: !isAdminRole ? Colors.white : Colors.grey,
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
@@ -425,7 +529,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               GestureDetector(
                                 onTap: () {
                                   setState(() {
-                                    _isUserRole = false;
+                                    isAdminRole = true; // Admin role
                                   });
                                 },
                                 child: Container(
@@ -434,14 +538,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                     vertical: 12,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: !_isUserRole ? const Color(0xFFFF7F59) : Colors.transparent,
+                                    color: isAdminRole ? const Color(0xFFFF7F59) : Colors.transparent,
                                     borderRadius: BorderRadius.circular(30),
                                   ),
                                   child: Text(
                                     'Admin',
                                     style: TextStyle(
                                       fontFamily: 'SofiaSans',
-                                      color: !_isUserRole ? Colors.white : Colors.grey,
+                                      color: isAdminRole ? Colors.white : Colors.grey,
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
@@ -453,33 +557,42 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       
                       const SizedBox(height: 40),
-                      
                       // Login button
                       SizedBox(
                         width: double.infinity,
                         height: 56,
                         child: ElevatedButton(
-                          onPressed: _isLoading ? null : _signInWithEmailAndPassword, // Call _loginUser
+                          onPressed: _isLoading ? null : _login,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFFFF7F59),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(30),
                             ),
                           ),
-                          child: _isLoading
-                              ? const CircularProgressIndicator(color: Colors.white)
-                              : const Text(
-                                  'LOGIN',
-                                  style: TextStyle(
-                                    fontFamily: 'SofiaSans',
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
+                          child: const Text(
+                            'Login',
+                            style: TextStyle(
+                              fontFamily: 'SofiaSans',
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
                         ),
                       ),
+                      
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 24),
+                        Text(
+                          _errorMessage!,
+                          style: const TextStyle(
+                            fontFamily: 'SofiaSans',
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                       
                       const SizedBox(height: 24),
                       

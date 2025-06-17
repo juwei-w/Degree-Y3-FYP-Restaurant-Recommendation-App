@@ -44,6 +44,7 @@ dependencies:
   firebase_dynamic_links: 6.0.5 # Example version
   shared_preferences: ^2.2.3 # Or the latest version
   logger: ^2.0.1 # Or the latest version
+  cloud_functions: 5.1.0 # Add Cloud Functions
 
 dev_dependencies:
   flutter_test:
