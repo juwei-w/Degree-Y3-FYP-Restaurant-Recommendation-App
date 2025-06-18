@@ -10,8 +10,8 @@ import 'dart:developer'; // For log()
 // Import other screens if needed for routes, e.g.:
 // import 'screens/admin_home_screen.dart';
 // import 'screens/welcome_screen.dart';
-// import 'screens/home_screen.dart'; // Import your home screen or main screen
-import 'screens/my_location_screen.dart'; // Import your location screen
+import 'screens/home_screen.dart'; // Import your home screen or main screen
+// import 'screens/my_location_screen.dart'; // Import your location screen
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -111,8 +111,8 @@ class MyApp extends StatelessWidget {
       // If auto-login was successful, navigate to ProfileScreen.
       // Otherwise, fall back to LoginScreen.
       // home: isAutoLoginSuccessful ? const ProfileScreen() : const LoginScreen(),
-      // home: HomeScreen()
-      home: MyLocationScreen()
+      home: HomeScreen()
+      // home: MyLocationScreen()
       // routes: {
       //   // Define your named routes here if you use them
       //   // This ensures ProfileScreen can be navigated to if it's not the initial home

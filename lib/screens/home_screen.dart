@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'feedback_screen.dart';
 import 'favourites_screen.dart';
 import 'profile_screen.dart';
@@ -21,6 +21,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  String _userName = 'User Name';
+  String _userEmail = 'user@email.com';
 
   final DraggableScrollableController _dragController = DraggableScrollableController();
   double _dragPosition = 0.5; // Half screen initially
@@ -48,6 +50,36 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     });
     _loadRestaurantData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+  }
+
+  Future<void> _fetchUserInfo() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      String name = 'User Name';
+      try {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+        if (userDoc.exists) {
+          final userData = userDoc.data() as Map<String, dynamic>;
+          name = userData['name'] ?? user.displayName ?? 'User Name';
+        }
+      } catch (_) {
+        name = user.displayName ?? 'User Name';
+      }
+      if (mounted) {
+        setState(() {
+          _userName = name;
+          _userEmail = user.email ?? 'user@email.com';
+        });
+      }
+    }
   }
 
   Future<void> _loadRestaurantData() async {
@@ -121,6 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: IconButton(
                         icon: const Icon(Icons.menu),
                         onPressed: () {
+                          _fetchUserInfo();
                           Scaffold.of(context).openDrawer();
                         },
                       ),
@@ -322,43 +355,26 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 16),
                   
                   // User name and email
-                  FutureBuilder<DocumentSnapshot>(
-                    future: FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(FirebaseAuth.instance.currentUser?.uid)
-                        .get(),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const CircularProgressIndicator();
-                      }
-                      if (!snapshot.hasData || !snapshot.data!.exists) {
-                        return const Text('User Name');
-                      }
-                      final userData = snapshot.data!.data() as Map<String, dynamic>;
-                      final userName = userData['name'] ?? 'User Name';
-                      final userEmail = FirebaseAuth.instance.currentUser?.email ?? 'user@email.com';
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Text(
-                            userName,
-                            style: const TextStyle(
-                              fontFamily: 'SofiaSans',
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            userEmail,
-                            style: TextStyle(
-                              fontFamily: 'SofiaSans',
-                              fontSize: 14,
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Text(
+                        _userName,
+                        style: const TextStyle(
+                          fontFamily: 'SofiaSans',
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        _userEmail,
+                        style: TextStyle(
+                          fontFamily: 'SofiaSans',
+                          fontSize: 14,
+                          color: Colors.grey[500],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
