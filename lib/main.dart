@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:developer'; // For log()
 
 // Import your screen widgets
@@ -9,8 +10,8 @@ import 'dart:developer'; // For log()
 // Import other screens if needed for routes, e.g.:
 // import 'screens/admin_home_screen.dart';
 // import 'screens/welcome_screen.dart';
-import 'screens/home_screen.dart'; // Import your home screen or main screen
-// import 'screens/my_location_screen.dart'; // Import your location screen
+// import 'screens/home_screen.dart'; // Import your home screen or main screen
+import 'screens/my_location_screen.dart'; // Import your location screen
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,6 +19,7 @@ Future<void> main() async {
   // If you used Firebase CLI and have firebase_options.dart, uncomment the next line:
   // await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await Firebase.initializeApp(); // Use this if you don't have options file or for basic init
+  await dotenv.load(); // Make sure this line runs first!
 
   User? user;
   bool autoLoginSuccess = false;
@@ -109,7 +111,8 @@ class MyApp extends StatelessWidget {
       // If auto-login was successful, navigate to ProfileScreen.
       // Otherwise, fall back to LoginScreen.
       // home: isAutoLoginSuccessful ? const ProfileScreen() : const LoginScreen(),
-      home: HomeScreen()
+      // home: HomeScreen()
+      home: MyLocationScreen()
       // routes: {
       //   // Define your named routes here if you use them
       //   // This ensures ProfileScreen can be navigated to if it's not the initial home

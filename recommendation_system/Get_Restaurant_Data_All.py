@@ -3,15 +3,18 @@ import json
 import googlemaps
 import re
 from fuzzywuzzy import process
+from dotenv import load_dotenv
 import sys # Required for command-line arguments and stderr
+
+load_dotenv()  # Loads variables from .env into environment
 
 # Google Maps API Key
 # Ensure this key is active and has Places API enabled.
 # api_key = "YOUR_GOOGLE_MAPS_API_KEY" # Replace with your actual key
 # api_key = "AIzaSyDXhbakEqfh8Y2UWc3-FPt1eXlFJfND7J0" # Example from your file
 # api_key = "AIzaSyBQw75wYvUnX7XhERvVL_hmLsucaxL9s3I" # Example from your file
-api_key = "AIzaSyCPAj3IP_wDsxa9mK0Ng0GCwaenmXxK5Qc" # Example from your file
-gmaps = googlemaps.Client(key=api_key)
+GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
+gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
 
 # Define a dictionary of categories with keywords
 EXCLUDED_TYPES = ['gas_station', 'lodging', 'convenience_store', 'car_repair', 'car_wash', 'parking']
