@@ -4,6 +4,10 @@ import 'package:smart_food_v1/services/location_service.dart';
 import 'package:http/http.dart' as http; // Import the http package
 import 'dart:convert'; // Import for jsonDecode
 
+// To run this code
+// cd django_project
+// python manage.py runserver 0.0.0.0:8000
+
 class MyLocationScreen extends StatefulWidget {
   const MyLocationScreen({super.key});
 
