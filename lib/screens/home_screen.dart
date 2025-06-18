@@ -634,6 +634,22 @@ class _HomeScreenState extends State<HomeScreen> {
     final String restaurantId = restaurant['place_id'] ?? restaurant['name'] ?? '';
     final isFavourite = favouriteRestaurantIds.contains(restaurantId);
 
+    // Determine opening status string and color (color-blind friendly)
+    String openingStatusText = '';
+    Color openingStatusColor = const Color(0xFF66FF00); // bright green for open
+    Color openingStatusBgColor = const Color(0xFFECFFDE); // light green
+    if (restaurant.containsKey('opening_status')) {
+      if (restaurant['opening_status'] == true) {
+        openingStatusText = 'Open';
+        openingStatusColor = const Color(0xFF66FF00); // bright green for open
+        openingStatusBgColor = const Color(0xFFECFFDE); // light green
+      } else if (restaurant['opening_status'] == false) {
+        openingStatusText = 'Closed';
+        openingStatusColor = const Color(0xFFBDBDBD); // dark grey for closed
+        openingStatusBgColor = const Color(0xFFF5F5F5); // light grey
+      }
+    }
+
     return GestureDetector(
       onTap: () { _navigateToViewRestaurant(context, restaurant); },
       child: Card(
@@ -765,6 +781,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       // Icon(Icons.verified, color: Color(0xFF2DC653), size: 18),
                     ],
                   ),
+                  // Remove previous opening status display here (was below name and above address)
                   const SizedBox(height: 8),
                   // Restaurant address/details
                   if (restaurant['address'] != null)
@@ -780,34 +797,58 @@ class _HomeScreenState extends State<HomeScreen> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   const SizedBox(height: 12),
-                  // Categories as chips (styled to match theme)
-                  if (restaurant['categories'] != null && restaurant['categories'] is List)
+                  // Opening status and categories as chips (styled to match theme)
+                  if ((restaurant['categories'] != null && restaurant['categories'] is List) || openingStatusText.isNotEmpty)
                     Wrap(
                       spacing: 8,
-                      children: (restaurant['categories'] as List).map<Widget>((categoryItem) {
-                          final String categoryText = categoryItem.toString().toUpperCase(); 
-
+                      children: [
+                        if (openingStatusText.isNotEmpty)
+                          Chip(
+                            label: Text(
+                              openingStatusText.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontFamily: 'SofiaSans',
+                                fontWeight: FontWeight.w600,
+                                color: openingStatusColor,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                            backgroundColor: openingStatusBgColor,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              side: BorderSide(
+                                color: openingStatusColor,
+                                width: 1,
+                              ),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                          ),
+                        ...((restaurant['categories'] as List?)?.map<Widget>((categoryItem) {
+                          final String categoryText = categoryItem.toString().toUpperCase();
                           return Chip(
-                                label: Text(
-                                  categoryText,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontFamily: 'SofiaSans',
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFFFF7F59),
-                                    letterSpacing: 0.2,
-                                  ),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  side: BorderSide(
-                                    color: const Color(0xFFE0E0E0),
-                                    width: 1,
-                                  ),
-                                ),
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                              );
-                        }).toList(),
+                            label: Text(
+                              categoryText,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontFamily: 'SofiaSans',
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFFF7F59),
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                            // backgroundColor: Color(0xFFE0E0E0), // light grey background
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              side: BorderSide(
+                                color: const Color(0xFFFF7F59), 
+                                width: 1,
+                              ),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                          );
+                        }).toList() ?? []),
+                      ],
                     )
                 ],
               ),
