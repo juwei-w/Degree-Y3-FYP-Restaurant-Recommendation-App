@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'feedback_screen.dart';
 import 'favourites_screen.dart';
 import 'profile_screen.dart';
@@ -18,6 +20,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+
   final DraggableScrollableController _dragController = DraggableScrollableController();
   double _dragPosition = 0.5; // Half screen initially
   
@@ -318,22 +321,34 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 16),
                   
                   // User name and email
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  FutureBuilder<DocumentSnapshot>(
+                    future: FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(FirebaseAuth.instance.currentUser?.uid)
+                        .get(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const CircularProgressIndicator();
+                      }
+                      if (!snapshot.hasData || !snapshot.data!.exists) {
+                        return const Text('User Name');
+                      }
+                      final userData = snapshot.data!.data() as Map<String, dynamic>;
+                      final userName = userData['name'] ?? 'User Name';
+                      final userEmail = FirebaseAuth.instance.currentUser?.email ?? 'user@email.com';
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          const Text(
-                            'Farion Wick',
-                            style: TextStyle(
+                          Text(
+                            userName,
+                            style: const TextStyle(
                               fontFamily: 'SofiaSans',
                               fontSize: 24,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           Text(
-                            'farionwick@gmail.com',
+                            userEmail,
                             style: TextStyle(
                               fontFamily: 'SofiaSans',
                               fontSize: 14,
@@ -341,13 +356,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ],
-                      ),
-                      const SizedBox(width: 8),
-                      const Icon(
-                        Icons.keyboard_arrow_down,
-                        color: Colors.grey,
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ],
               ),
@@ -510,10 +520,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-                
-                // Search bar
+                // Search bar (moved outside scrollable area, always visible)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                  padding: EdgeInsets.only(
+                    left: 16.0,
+                    right: 16.0,
+                    top: 4.0,
+                    bottom: 8.0, // fixed bottom padding
+                  ),
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.grey[100],
@@ -534,6 +548,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 color: Colors.grey,
                               ),
                               border: InputBorder.none,
+                              focusedBorder: InputBorder.none, // Remove orange border when active
+                              enabledBorder: InputBorder.none, // Remove border when enabled
                             ),
                           ),
                         ),
@@ -554,7 +570,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-                
                 // Nearby Restaurants header
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -605,7 +620,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   child: ListView.builder(
                     controller: scrollController,
-                    padding: const EdgeInsets.only(bottom: 80), // Add bottom padding so last card is visible above nav bar
+                    // Only add bottom padding for nav bar (not keyboard) since search bar is now always visible
+                    padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(context).padding.bottom + 80,
+                    ),
                     itemCount: restaurants.length,
                     itemBuilder: (context, index) {
                       final restaurant = restaurants[index];
