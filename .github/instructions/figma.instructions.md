@@ -12,6 +12,7 @@ This project uses Figma designs as the source of truth for UI/UX. The Figma fold
 - Use the correct icons and images as per the Figma assets.
 - Button shapes, sizes, and colors should match the Figma reference.
 - Follow the navigation flow and screen transitions as depicted in the Figma screens.
+- **AI Assistant Interaction:** When providing code modifications or suggestions, do not alter the existing frontend UI code (e.g., the `build` method of widgets, UI layout, styling, or visual presentation) unless explicitly instructed to do so. Focus on backend logic, state management, data handling, and functional implementations as requested. If a backend change necessitates a frontend change for it to function, please state this clearly and await explicit instruction before modifying the frontend.
 
 ## Naming and Structure
 - Name widgets, classes, and files according to the screen/function shown in Figma (e.g., `LoginScreen`, `RegisterScreen`).
