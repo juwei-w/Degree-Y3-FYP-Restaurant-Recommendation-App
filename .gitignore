@@ -48,3 +48,4 @@ app.*.map.json
 node_modules/
 venv/
 .env/
+functions/
