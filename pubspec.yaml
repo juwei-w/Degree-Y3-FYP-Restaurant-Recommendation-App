@@ -45,6 +45,7 @@ dependencies:
   shared_preferences: ^2.2.3 # Or the latest version
   logger: ^2.0.1 # Or the latest version
   cloud_functions: 5.1.0 # Add Cloud Functions
+  flutter_dotenv: ^5.0.2 # Add flutter_dotenv for environment variables
 
 dev_dependencies:
   flutter_test:

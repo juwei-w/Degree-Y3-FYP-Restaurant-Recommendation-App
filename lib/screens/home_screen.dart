@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
@@ -10,7 +11,7 @@ import 'welcome_screen.dart';
 import 'recommend_screen.dart';
 import 'view_restaurant_screen.dart';
 
-const String YOUR_GOOGLE_MAPS_API_KEY = 'AIzaSyCPAj3IP_wDsxa9mK0Ng0GCwaenmXxK5Qc';
+final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -646,7 +647,7 @@ class _HomeScreenState extends State<HomeScreen> {
         (restaurant['photos'] as List).isNotEmpty) {
       final photoRef = restaurant['photos'][0];
       photoUrl =
-          'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=$photoRef&key=$YOUR_GOOGLE_MAPS_API_KEY';
+          'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=$photoRef&key=$apiKey';
     }
 
     final String restaurantId = restaurant['place_id'] ?? restaurant['name'] ?? '';

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:developer'; // For log()
 
 // Import your screen widgets
@@ -18,6 +19,7 @@ Future<void> main() async {
   // If you used Firebase CLI and have firebase_options.dart, uncomment the next line:
   // await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await Firebase.initializeApp(); // Use this if you don't have options file or for basic init
+  await dotenv.load(); // Make sure this line runs first!
 
   User? user;
   bool autoLoginSuccess = false;
