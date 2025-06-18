@@ -4,11 +4,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:developer'; // For log()
 
 // Import your screen widgets
-import 'screens/profile_screen.dart'; // Make sure this path is correct
-import 'screens/login_screen.dart';   // Make sure this path is correct
+// import 'screens/profile_screen.dart'; // Make sure this path is correct
+// import 'screens/login_screen.dart';   // Make sure this path is correct
 // Import other screens if needed for routes, e.g.:
 // import 'screens/admin_home_screen.dart';
-// import 'screens/home_screen.dart';
+// import 'screens/welcome_screen.dart';
+import 'screens/home_screen.dart'; // Import your home screen or main screen
+// import 'screens/my_location_screen.dart'; // Import your location screen
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +30,7 @@ Future<void> main() async {
     // Attempt to sign in with the specified credentials
     UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
       email: "payardgt@gmail.com",
-      password: "nimama",
+      password: "newpayardgt",
     );
     user = userCredential.user;
     if (user != null) {
@@ -106,16 +108,18 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       // If auto-login was successful, navigate to ProfileScreen.
       // Otherwise, fall back to LoginScreen.
-      home: isAutoLoginSuccessful ? const ProfileScreen() : const LoginScreen(),
-      routes: {
-        // Define your named routes here if you use them
-        // This ensures ProfileScreen can be navigated to if it's not the initial home
-        '/profile': (context) => const ProfileScreen(),
-        '/login': (context) => const LoginScreen(),
-        // Example other routes based on previous discussions:
-        // '/adminDashboard': (context) => const AdminHomeScreen(),
-        // '/userHome': (context) => const HomeScreen(),
-      },
+      // home: isAutoLoginSuccessful ? const ProfileScreen() : const LoginScreen(),
+      home: HomeScreen()
+      // routes: {
+      //   // Define your named routes here if you use them
+      //   // This ensures ProfileScreen can be navigated to if it's not the initial home
+      //   '/profile': (context) => const ProfileScreen(),
+      //   '/login': (context) => const LoginScreen(),
+      //   '/welcome': (context) => const WelcomeScreen(),
+      //   // Example other routes based on previous discussions:
+      //   // '/adminDashboard': (context) => const AdminHomeScreen(),
+      //   // '/userHome': (context) => const HomeScreen(),
+      // },
     );
   }
 }

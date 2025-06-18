@@ -14,7 +14,7 @@ from django.views.decorators.http import require_GET
 # within your 'recommender' app (e.g., recommender/utils.py)
 
 # Google Maps API Key - IMPORTANT: Manage this securely, e.g., environment variable or Django settings
-API_KEY = "AIzaSyAJBoC-T_nA4fjpVR3ObZ-Dss1PFONcg_w" # Replace with your key
+API_KEY = "AIzaSyCPAj3IP_wDsxa9mK0Ng0GCwaenmXxK5Qc" # Replace with your key
 gmaps = googlemaps.Client(key=API_KEY)
 
 EXCLUDED_TYPES = ['gas_station', 'lodging', 'convenience_store', 'car_repair', 'car_wash', 'parking']

@@ -8,7 +8,7 @@ import 'welcome_screen.dart';
 import 'recommend_screen.dart';
 import 'view_restaurant_screen.dart';
 
-const String YOUR_GOOGLE_MAPS_API_KEY = 'AIzaSyAJBoC-T_nA4fjpVR3ObZ-Dss1PFONcg_w';
+const String YOUR_GOOGLE_MAPS_API_KEY = 'AIzaSyCPAj3IP_wDsxa9mK0Ng0GCwaenmXxK5Qc';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -794,12 +794,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                     fontSize: 12,
                                     fontFamily: 'SofiaSans',
                                     fontWeight: FontWeight.w600,
-                                    color: Color(0xFFFF7F59), // Changed to grey/default color
+                                    color: Color(0xFFFF7F59),
                                     letterSpacing: 0.2,
                                   ),
                                 ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(8),
+                                  side: BorderSide(
+                                    color: const Color(0xFFE0E0E0),
+                                    width: 1,
+                                  ),
                                 ),
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                               );

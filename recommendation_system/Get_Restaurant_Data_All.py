@@ -10,7 +10,7 @@ import sys # Required for command-line arguments and stderr
 # api_key = "YOUR_GOOGLE_MAPS_API_KEY" # Replace with your actual key
 # api_key = "AIzaSyDXhbakEqfh8Y2UWc3-FPt1eXlFJfND7J0" # Example from your file
 # api_key = "AIzaSyBQw75wYvUnX7XhERvVL_hmLsucaxL9s3I" # Example from your file
-api_key = "AIzaSyAJBoC-T_nA4fjpVR3ObZ-Dss1PFONcg_w" # Example from your file
+api_key = "AIzaSyCPAj3IP_wDsxa9mK0Ng0GCwaenmXxK5Qc" # Example from your file
 gmaps = googlemaps.Client(key=api_key)
 
 # Define a dictionary of categories with keywords
