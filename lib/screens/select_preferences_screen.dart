@@ -23,8 +23,8 @@ class SelectPreferencesScreen extends StatefulWidget {
 class _SelectPreferencesScreenState extends State<SelectPreferencesScreen> {
   // ... your existing state variables ...
   final List<String> _allPreferences = [
-    'CHINESE', 'INDIAN', 'MALAY', 'KOREAN', 
-    'JAPANESE', 'THAI', 'WESTERN', 'EASTERN'
+    'chinese', 'indian', 'malay', 'korean', 
+    'japanese', 'thai', 'western', 'eastern'
   ];
   final Set<String> _selectedPreferences = {};
   bool _isLoading = false;
@@ -191,7 +191,7 @@ class _SelectPreferencesScreenState extends State<SelectPreferencesScreen> {
                             ),
                             child: Center(
                               child: Text(
-                                preference,
+                                preference.toUpperCase(),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontFamily: 'SofiaSans',

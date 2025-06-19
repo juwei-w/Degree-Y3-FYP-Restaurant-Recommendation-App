@@ -24,7 +24,7 @@ class FoodRestrictionsScreen extends StatefulWidget {
 
 class _FoodRestrictionsScreenState extends State<FoodRestrictionsScreen> {
   final List<String> _allRestrictions = [
-    'HALAL', 'VEGETARIAN', 'VEGAN', 'BEEF-FREE'
+    'halal', 'vegetarian', 'vegan', 'beef-free'
   ];
   final Set<String> _selectedRestrictions = {};
   bool _isLoading = false;
@@ -59,11 +59,13 @@ class _FoodRestrictionsScreenState extends State<FoodRestrictionsScreen> {
       _logger.d("Saving data for User: ${widget.user.uid}, Name: ${widget.name}, Email: ${widget.user.email}, Prefs: ${widget.selectedPreferences}, Restrictions: ${_selectedRestrictions.toList()}");
       await FirebaseFirestore.instance.collection('users').doc(widget.user.uid).set({
         'uid': widget.user.uid,
+        'createdAt': FieldValue.serverTimestamp(),
+        'isAdmin': false,
         'name': widget.name,
-        'email': widget.user.email,
         'preferences': widget.selectedPreferences,
         'restrictions': _selectedRestrictions.toList(),
-        'createdAt': FieldValue.serverTimestamp(),
+        'locations': [], // list of saved locations
+        'favourites': [], // list of favourite restaurant IDs or objects
       });
       _logger.i("User data saved successfully for UID: ${widget.user.uid}.");
 
@@ -225,7 +227,7 @@ class _FoodRestrictionsScreenState extends State<FoodRestrictionsScreen> {
                             ),
                             child: Center(
                               child: Text(
-                                restriction,
+                                restriction.toUpperCase(),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontFamily: 'SofiaSans', // Ensure this font is in pubspec.yaml and assets
