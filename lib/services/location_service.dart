@@ -2,6 +2,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:developer';
 
 class LocationService {
   /// Determines the current position of the device.
@@ -61,44 +62,46 @@ class LocationService {
         return "Address not found";
       }
     } catch (e) {
+      log('Error getting address from lat/lng: $e', name: 'LocationService');
       return "Error getting address";
     }
   }
 
-  /// Returns a human-readable address from latitude and longitude.
-  Future<String> getAddressFromCoordinates(double latitude, double longitude) async {
-    try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        latitude,
-        longitude,
-      );
+  // /// Returns a human-readable address from latitude and longitude.
+  // Future<String> getAddressFromCoordinates(double latitude, double longitude) async {
+  //   try {
+  //     List<Placemark> placemarks = await placemarkFromCoordinates(
+  //       latitude,
+  //       longitude,
+  //     );
 
-      if (placemarks.isNotEmpty) {
-        Placemark place = placemarks[0];
-        // Construct a readable address
-        return "${place.street}, ${place.locality}, ${place.postalCode}, ${place.country}";
-      } else {
-        return "Address not found";
-      }
-    } catch (e) {
-      return "Error getting address";
-    }
-  }
+  //     if (placemarks.isNotEmpty) {
+  //       Placemark place = placemarks[0];
+  //       // Construct a readable address
+  //       return "${place.street}, ${place.locality}, ${place.postalCode}, ${place.country}";
+  //     } else {
+  //       return "Address not found";
+  //     }
+  //   } catch (e) {
+  //     log('Error getting address from coordinates: $e', name: 'LocationService');
+  //     return "Error getting address";
+  //   }
+  // }
 
-  Future<Map<String, double>?> getCoordinatesFromAddress(String address) async {
-    try {
-      List<Location> locations = await locationFromAddress(address);
-      if (locations.isNotEmpty) {
-        return {
-          'latitude': locations.first.latitude,
-          'longitude': locations.first.longitude,
-        };
-      }
-    } catch (e) {
-      print("Error getting coordinates from address: $e");
-    }
-    return null;
-  }
+  // Future<Map<String, double>?> getCoordinatesFromAddress(String address) async {
+  //   try {
+  //     List<Location> locations = await locationFromAddress(address);
+  //     if (locations.isNotEmpty) {
+  //       return {
+  //         'latitude': locations.first.latitude,
+  //         'longitude': locations.first.longitude,
+  //       };
+  //     }
+  //   } catch (e) {
+  //     log("Error getting coordinates from address: $e", name: 'LocationService');
+  //   }
+  //   return null;
+  // }
 
   /// Fetches place autocomplete suggestions from Google Places API.
   Future<List<Map<String, String>>> getAutocompleteSuggestions(
@@ -124,7 +127,7 @@ class LocationService {
         }
       }
     } catch (e) {
-      print("Error fetching autocomplete suggestions: $e");
+      log("Error fetching autocomplete suggestions: $e", name: 'LocationService');
     }
     return [];
   }
@@ -149,7 +152,7 @@ class LocationService {
         }
       }
     } catch (e) {
-      print("Error fetching place details: $e");
+      log("Error fetching place details: $e", name: 'LocationService');
     }
     return null;
   }

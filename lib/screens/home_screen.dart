@@ -50,12 +50,19 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     });
     _initializeData();
-    _loadRestaurantData();
   }
 
   Future<void> _initializeData() async {
-    await _getCurrentUserLocation(); // First, get the physical location
-    await _fetchUserInfo(); // Then, fetch user data which may override the location
+    // Fetch user data, which now also determines the selected address from Firestore
+    await _fetchUserInfo();
+
+    // If no address was marked as 'selected' in the database, default to current location
+    if (_selectedAddress == null) {
+      await _getCurrentUserLocation();
+    }
+
+    // Load restaurant data after the location has been finalized
+    _loadRestaurantData();
   }
 
   Future<void> _getCurrentUserLocation() async {
@@ -69,6 +76,7 @@ class _HomeScreenState extends State<HomeScreen> {
             'address': address,
             'latitude': position.latitude,
             'longitude': position.longitude,
+            'isSelected': true, // Flag for UI state
           };
         });
       }
@@ -80,6 +88,7 @@ class _HomeScreenState extends State<HomeScreen> {
             'address': 'Please check permissions and try again.',
             'latitude': 0.0,
             'longitude': 0.0,
+            'isSelected': true, // Flag for UI state
           };
         });
       }
@@ -123,8 +132,17 @@ class _HomeScreenState extends State<HomeScreen> {
           userFavourites = favourites;
           _addresses = userSavedAddresses;
 
-          if (userSavedAddresses.isNotEmpty) {
-            _selectedAddress = userSavedAddresses.first;
+          // Find the selected address from the list fetched from Firestore
+          final selected = _addresses.firstWhere(
+            (addr) => addr['isSelected'] == true,
+            orElse: () => <String, dynamic>{},
+          );
+
+          if (selected.isNotEmpty) {
+            _selectedAddress = selected;
+          } else {
+            _selectedAddress =
+                null; // Explicitly null if none is selected in DB
           }
         });
       }
@@ -143,32 +161,68 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  /// Central method to update the address selection state in Firestore.
+  Future<void> _updateAddressSelectionInDb(
+      {Map<String, dynamic>? newSelectedAddress}) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDocRef =
+        FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+    // Create the new list with updated 'isSelected' flags
+    final updatedAddresses = _addresses.map((addr) {
+      // Check for equality based on a unique field like the address string
+      final isSelected = (newSelectedAddress != null) &&
+          (addr['address'] == newSelectedAddress['address']);
+      return {...addr, 'isSelected': isSelected};
+    }).toList();
+
+    // Update Firestore with the new list
+    await userDocRef.update({'address': updatedAddresses});
+
+    // Refresh local state from the new source of truth
+    await _fetchUserInfo();
+  }
+
   Future<void> _saveNewAddress(Map<String, dynamic> newAddressData) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     final userDocRef =
         FirebaseFirestore.instance.collection('users').doc(user.uid);
-    await userDocRef.update({
-      'address': FieldValue.arrayUnion([newAddressData])
-    });
-    await _fetchUserInfo(); // Refresh UI
+
+    // Make all existing addresses not selected
+    final unselectedAddresses =
+        _addresses.map((addr) => {...addr, 'isSelected': false}).toList();
+
+    // Add the new address and mark it as selected
+    final newAddressWithSelection = {...newAddressData, 'isSelected': true};
+    final updatedList = [...unselectedAddresses, newAddressWithSelection];
+
+    await userDocRef.update({'address': updatedList});
+    await _fetchUserInfo(); // Refresh UI, which will set the new address as selected
   }
 
-  Future<void> _updateAddress(
-      Map<String, dynamic> oldAddressData,
+  Future<void> _updateAddress(Map<String, dynamic> oldAddressData,
       Map<String, dynamic> newAddressData) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     final userDocRef =
         FirebaseFirestore.instance.collection('users').doc(user.uid);
-    await userDocRef.update({
-      'address': FieldValue.arrayRemove([oldAddressData])
-    });
-    await userDocRef.update({
-      'address': FieldValue.arrayUnion([newAddressData])
-    });
+
+    // Create a new list where the updated address is selected and all others are not.
+    final updatedAddresses = _addresses.map((addr) {
+      // If this is the address we are updating, replace it and mark as selected.
+      if (addr['address'] == oldAddressData['address']) {
+        return {...newAddressData, 'isSelected': true};
+      }
+      // Otherwise, ensure it's not selected.
+      return {...addr, 'isSelected': false};
+    }).toList();
+
+    await userDocRef.update({'address': updatedAddresses});
     await _fetchUserInfo(); // Refresh UI
   }
 
@@ -178,10 +232,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final userDocRef =
         FirebaseFirestore.instance.collection('users').doc(user.uid);
-    await userDocRef.update({
-      'address': FieldValue.arrayRemove([addressToDelete])
-    });
+
+    // Remove the address from the list
+    final remainingAddresses = _addresses
+        .where((addr) => addr['address'] != addressToDelete['address'])
+        .toList();
+
+    await userDocRef.update({'address': remainingAddresses});
     await _fetchUserInfo(); // Refresh UI
+
+    // After fetching, if no address is selected, get current location.
+    if (_selectedAddress == null) {
+      await _getCurrentUserLocation();
+    }
   }
 
   // To check if a restaurant is a favourite:
@@ -1065,148 +1128,226 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            // Helper function to select current location
+            void selectCurrentLocation() async {
+              Navigator.pop(context); // Close modal
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) =>
+                    const Center(child: CircularProgressIndicator()),
+              );
+              try {
+                // Set all saved addresses in DB to isSelected: false
+                await _updateAddressSelectionInDb(newSelectedAddress: null);
+                // Then get current location, which will update the UI state
+                await _getCurrentUserLocation();
+              } finally {
+                // Make sure context is still valid before popping
+                if (Navigator.of(context, rootNavigator: true).canPop()) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+              }
+            }
+
+            // Determine if 'Current Location' is the active selection
+            final isCurrentLocationSelected =
+                _selectedAddress?['label'] == 'Current Location' ||
+                    _addresses.every((addr) => addr['isSelected'] != true);
+
             return Container(
-                constraints: const BoxConstraints(minWidth: 500),
-                margin:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-                padding: const EdgeInsets.only(
-                    top: 16, left: 0, right: 0, bottom: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      blurRadius: 16,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 20, vertical: 0),
-                      child: Text(
-                        'Select Address',
-                        style: TextStyle(
-                          fontFamily: 'SofiaSans',
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black,
-                        ),
+              constraints: const BoxConstraints(minWidth: 500),
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+              padding: const EdgeInsets.only(
+                  top: 16, left: 0, right: 0, bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 16,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 0),
+                    child: Text(
+                      'Select Address',
+                      style: TextStyle(
+                        fontFamily: 'SofiaSans',
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    ..._addresses.map((address) {
-                      final isSelected =
-                          address['address'] == _selectedAddress?['address'];
-                      final String displayText =
-                          address['label'] ?? address['address'];
-                      return Container(
-                        margin: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? const Color(0xFFFFF5F2)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // "Use Current Location" option
+                  Container(
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isCurrentLocationSelected
+                          ? const Color(0xFFFFF5F2)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: selectCurrentLocation,
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 4, right: 12),
+                            child: Icon(
+                              isCurrentLocationSelected
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_off,
+                              color: isCurrentLocationSelected
+                                  ? const Color(0xFFFF7F59)
+                                  : Colors.grey,
+                              size: 26,
+                            ),
+                          ),
                         ),
-                        child: Row(
-                          children: [
-                            InkWell(
-                              borderRadius: BorderRadius.circular(20),
-                              onTap: () {
-                                setState(() {
-                                  _selectedAddress = address;
-                                });
-                                Navigator.pop(context);
-                              },
-                              child: Padding(
-                                padding:
-                                    const EdgeInsets.only(left: 4, right: 12),
-                                child: Icon(
-                                  isSelected
-                                      ? Icons.radio_button_checked
-                                      : Icons.radio_button_off,
-                                  color: isSelected
+                        Expanded(
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: selectCurrentLocation,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 14, horizontal: 0),
+                              child: Text(
+                                'Use Current Location',
+                                style: TextStyle(
+                                  fontFamily: 'SofiaSans',
+                                  fontSize: 16,
+                                  fontWeight: isCurrentLocationSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isCurrentLocationSelected
                                       ? const Color(0xFFFF7F59)
-                                      : Colors.grey,
-                                  size: 26,
+                                      : Colors.black,
                                 ),
                               ),
                             ),
-                            Expanded(
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(12),
-                                onTap: () {
-                                  setState(() {
-                                    _selectedAddress = address;
-                                  });
-                                  Navigator.pop(context);
-                                },
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      vertical: 14, horizontal: 0),
-                                  child: Text(
-                                    displayText,
-                                    style: TextStyle(
-                                      fontFamily: 'SofiaSans',
-                                      fontSize: 16,
-                                      fontWeight: isSelected
-                                          ? FontWeight.bold
-                                          : FontWeight.normal,
-                                      color: isSelected
-                                          ? const Color(0xFFFF7F59)
-                                          : Colors.black,
-                                    ),
+                          ),
+                        ),
+                        const SizedBox(
+                            width: 48), // Placeholder for alignment
+                      ],
+                    ),
+                  ),
+
+                  ..._addresses.map((address) {
+                    final isSelected = address['isSelected'] ?? false;
+                    final String displayText =
+                        address['label'] ?? address['address'];
+                    return Container(
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? const Color(0xFFFFF5F2)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () {
+                              _updateAddressSelectionInDb(
+                                  newSelectedAddress: address);
+                              Navigator.pop(context);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 4, right: 12),
+                              child: Icon(
+                                isSelected
+                                    ? Icons.radio_button_checked
+                                    : Icons.radio_button_off,
+                                color: isSelected
+                                    ? const Color(0xFFFF7F59)
+                                    : Colors.grey,
+                                size: 26,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () {
+                                _updateAddressSelectionInDb(
+                                    newSelectedAddress: address);
+                                Navigator.pop(context);
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 14, horizontal: 0),
+                                child: Text(
+                                  displayText,
+                                  style: TextStyle(
+                                    fontFamily: 'SofiaSans',
+                                    fontSize: 16,
+                                    fontWeight: isSelected
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                    color: isSelected
+                                        ? const Color(0xFFFF7F59)
+                                        : Colors.black,
                                   ),
                                 ),
                               ),
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.edit,
-                                  color: Color(0xFFFF7F59), size: 20),
-                              splashRadius: 20,
-                              onPressed: () async {
-                                Navigator.pop(context);
-                                _showAddOrEditAddressDialog(
-                                    existingAddress: address);
-                              },
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
-                    Padding(
-                      padding:
-                          const EdgeInsets.only(left: 20, top: 8, bottom: 8),
-                      child: TextButton.icon(
-                        onPressed: () async {
-                          Navigator.pop(context);
-                          _showAddOrEditAddressDialog();
-                        },
-                        icon: const Icon(Icons.add, color: Color(0xFFFF7F59)),
-                        label: const Text(
-                          'Add Address',
-                          style: TextStyle(
-                            fontFamily: 'SofiaSans',
-                            color: Color(0xFFFF7F59),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
                           ),
-                        ),
-                        style: TextButton.styleFrom(
-                          alignment: Alignment.centerLeft,
-                          padding: EdgeInsets.zero,
+                          IconButton(
+                            icon: const Icon(Icons.edit,
+                                color: Color(0xFFFF7F59), size: 20),
+                            splashRadius: 20,
+                            onPressed: () async {
+                              Navigator.pop(context);
+                              _showAddOrEditAddressDialog(
+                                  existingAddress: address);
+                            },
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 20, top: 8, bottom: 8),
+                    child: TextButton.icon(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        _showAddOrEditAddressDialog();
+                      },
+                      icon: const Icon(Icons.add, color: Color(0xFFFF7F59)),
+                      label: const Text(
+                        'Add Address',
+                        style: TextStyle(
+                          fontFamily: 'SofiaSans',
+                          color: Color(0xFFFF7F59),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
                         ),
                       ),
+                      style: TextButton.styleFrom(
+                        alignment: Alignment.centerLeft,
+                        padding: EdgeInsets.zero,
+                      ),
                     ),
-                  ],
-                ),
-              );
+                  ),
+                ],
+              ),
+            );
           },
         );
       },
