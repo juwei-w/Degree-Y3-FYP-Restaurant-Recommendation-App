@@ -32,7 +32,7 @@ Future<void> main() async {
     // Attempt to sign in with the specified credentials
     UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
       email: "payardgt@gmail.com",
-      password: "payardgt",
+      password: "payard",
     );
     user = userCredential.user;
     if (user != null) {

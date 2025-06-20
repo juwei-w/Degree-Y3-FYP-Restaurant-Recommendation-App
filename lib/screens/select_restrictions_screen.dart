@@ -64,7 +64,7 @@ class _FoodRestrictionsScreenState extends State<FoodRestrictionsScreen> {
         'name': widget.name,
         'preferences': widget.selectedPreferences,
         'restrictions': _selectedRestrictions.toList(),
-        'locations': [], // list of saved locations
+        'address': [], // list of saved locations
         'favourites': [], // list of favourite restaurant IDs or objects
       });
       _logger.i("User data saved successfully for UID: ${widget.user.uid}.");

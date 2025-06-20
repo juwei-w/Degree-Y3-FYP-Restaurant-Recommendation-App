@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import '../services/location_service.dart';
 import 'feedback_screen.dart';
 import 'favourites_screen.dart';
 import 'profile_screen.dart';
@@ -24,19 +26,17 @@ class _HomeScreenState extends State<HomeScreen> {
   String _userName = 'User Name';
   String _userEmail = 'user@email.com';
 
-  final DraggableScrollableController _dragController = DraggableScrollableController();
+  final DraggableScrollableController _dragController =
+      DraggableScrollableController();
   double _dragPosition = 0.5;
-  
+
   List<Map<String, dynamic>> restaurants = [];
 
   bool _showAddressDropdown = false;
-  final List<String> _addresses = [
-    '4102 Pretty View Lane',
-    '123 Main Street',
-    '88 Jalan Bestari',
-    'No. 5, Jalan Mawar',
-  ];
-  String _selectedAddress = '4102 Pretty View Lane';
+  List<Map<String, dynamic>> _addresses = []; // Changed to List of Maps
+  Map<String, dynamic>? _selectedAddress; // Changed to a Map object
+
+  final LocationService _locationService = LocationService();
 
   // Fetch user's favourites from Firestore (e.g., in initState or with a FutureBuilder)
   List<dynamic> userFavourites = []; // This will be a list of restaurant objects
@@ -49,19 +49,50 @@ class _HomeScreenState extends State<HomeScreen> {
         _dragPosition = _dragController.size;
       });
     });
+    _initializeData();
     _loadRestaurantData();
-    _fetchUserFavourites(); // Fetch favourites on init
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  Future<void> _initializeData() async {
+    await _getCurrentUserLocation(); // First, get the physical location
+    await _fetchUserInfo(); // Then, fetch user data which may override the location
+  }
+
+  Future<void> _getCurrentUserLocation() async {
+    try {
+      final position = await _locationService.getCurrentLocation();
+      final address = await _locationService.getAddressFromLatLng(position);
+      if (mounted) {
+        setState(() {
+          _selectedAddress = {
+            'label': 'Current Location',
+            'address': address,
+            'latitude': position.latitude,
+            'longitude': position.longitude,
+          };
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _selectedAddress = {
+            'label': 'Could not get location',
+            'address': 'Please check permissions and try again.',
+            'latitude': 0.0,
+            'longitude': 0.0,
+          };
+        });
+      }
+    }
   }
 
   Future<void> _fetchUserInfo() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       String name = 'User Name';
+      List<Map<String, dynamic>> userSavedAddresses = [];
+      List<dynamic> favourites = [];
+
       try {
         final userDoc = await FirebaseFirestore.instance
             .collection('users')
@@ -70,6 +101,17 @@ class _HomeScreenState extends State<HomeScreen> {
         if (userDoc.exists) {
           final userData = userDoc.data() as Map<String, dynamic>;
           name = userData['name'] ?? user.displayName ?? 'User Name';
+
+          if (userData['address'] != null && userData['address'] is List) {
+            userSavedAddresses = List<Map<String, dynamic>>.from(
+                userData['address']
+                    .map((item) => Map<String, dynamic>.from(item)));
+          }
+
+          if (userData['favourites'] != null &&
+              userData['favourites'] is List) {
+            favourites = userData['favourites'];
+          }
         }
       } catch (_) {
         name = user.displayName ?? 'User Name';
@@ -78,32 +120,68 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _userName = name;
           _userEmail = user.email ?? 'user@email.com';
+          userFavourites = favourites;
+          _addresses = userSavedAddresses;
+
+          if (userSavedAddresses.isNotEmpty) {
+            _selectedAddress = userSavedAddresses.first;
+          }
         });
       }
     }
   }
 
   Future<void> _loadRestaurantData() async {
-    final String jsonString = await rootBundle.loadString('assets/restaurant_data/django_data_2.json');
+    final String jsonString =
+        await rootBundle.loadString('assets/restaurant_data/django_data_2.json');
     final List<dynamic> jsonData = json.decode(jsonString);
     setState(() {
       restaurants = jsonData
-        .where((item) => item is Map<String, dynamic> && item['name'] != null)
-        .map<Map<String, dynamic>>((item) => item as Map<String, dynamic>)
-        .toList();
+          .where((item) => item is Map<String, dynamic> && item['name'] != null)
+          .map<Map<String, dynamic>>((item) => item as Map<String, dynamic>)
+          .toList();
     });
   }
 
-  // New method to fetch user favourites
-  Future<void> _fetchUserFavourites() async {
+  Future<void> _saveNewAddress(Map<String, dynamic> newAddressData) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-    if (doc.exists) {
-      setState(() {
-        userFavourites = doc.data()?['favourites'] ?? [];
-      });
-    }
+
+    final userDocRef =
+        FirebaseFirestore.instance.collection('users').doc(user.uid);
+    await userDocRef.update({
+      'address': FieldValue.arrayUnion([newAddressData])
+    });
+    await _fetchUserInfo(); // Refresh UI
+  }
+
+  Future<void> _updateAddress(
+      Map<String, dynamic> oldAddressData,
+      Map<String, dynamic> newAddressData) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDocRef =
+        FirebaseFirestore.instance.collection('users').doc(user.uid);
+    await userDocRef.update({
+      'address': FieldValue.arrayRemove([oldAddressData])
+    });
+    await userDocRef.update({
+      'address': FieldValue.arrayUnion([newAddressData])
+    });
+    await _fetchUserInfo(); // Refresh UI
+  }
+
+  Future<void> _deleteAddress(Map<String, dynamic> addressToDelete) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDocRef =
+        FirebaseFirestore.instance.collection('users').doc(user.uid);
+    await userDocRef.update({
+      'address': FieldValue.arrayRemove([addressToDelete])
+    });
+    await _fetchUserInfo(); // Refresh UI
   }
 
   // To check if a restaurant is a favourite:
@@ -209,55 +287,51 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   // Location dropdown (centered)
                   Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        GestureDetector(
-                          onTap: _showAddressSelector,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Column(
-                                children: [
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Text(
-                                        'Location',
-                                        style: TextStyle(
-                                          fontFamily: 'SofiaSans',
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      const Icon(
-                                        Icons.keyboard_arrow_down_rounded, // visually thicker
-                                        color: Colors.grey,
-                                        size: 17,
-                                        // fontWeight: FontWeight.bold,
-                                      ),
-                                    ],
+                    child: GestureDetector(
+                      onTap: _showAddressSelector,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                        alignment: Alignment.center,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  'Location',
+                                  style: TextStyle(
+                                    fontFamily: 'SofiaSans',
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey,
                                   ),
-                                  Text(
-                                    _selectedAddress,
-                                    style: const TextStyle(
-                                      fontFamily: 'SofiaSans',
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFFFF7F59),
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ],
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.keyboard_arrow_down_rounded, // visually thicker
+                                  color: Colors.grey,
+                                  size: 17,
+                                ),
+                              ],
+                            ),
+                            Text(
+                              _selectedAddress?['label'] ??
+                                  _selectedAddress?['address'] ??
+                                  'Fetching location...',
+                              style: const TextStyle(
+                                fontFamily: 'SofiaSans',
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFFF7F59),
                               ),
-                            ],
-                          ),
+                              textAlign: TextAlign.center,
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                   // Profile picture
@@ -339,7 +413,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        address,
+                                        address['label'] ?? address['address'],
                                         style: TextStyle(
                                           fontFamily: 'SofiaSans',
                                           fontSize: 14,
@@ -992,224 +1066,353 @@ class _HomeScreenState extends State<HomeScreen> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-              padding: const EdgeInsets.only(top: 16, left: 0, right: 0, bottom: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
-                    blurRadius: 16,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 0),
-                    child: Text(
-                      'Select Address',
-                      style: TextStyle(
-                        fontFamily: 'SofiaSans',
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
+                constraints: const BoxConstraints(minWidth: 500),
+                margin:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+                padding: const EdgeInsets.only(
+                    top: 16, left: 0, right: 0, bottom: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 16,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 20, vertical: 0),
+                      child: Text(
+                        'Select Address',
+                        style: TextStyle(
+                          fontFamily: 'SofiaSans',
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  ..._addresses.map((address) {
-                    final isSelected = address == _selectedAddress;
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isSelected ? const Color(0xFFFFF5F2) : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          // Selection circle (now tappable)
-                          InkWell(
-                            borderRadius: BorderRadius.circular(20),
-                            onTap: () {
-                              setState(() {
-                                _selectedAddress = address;
-                              });
-                              setModalState(() {});
-                              Navigator.pop(context, address);
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.only(left: 4, right: 12),
-                              child: Icon(
-                                isSelected
-                                    ? Icons.radio_button_checked
-                                    : Icons.radio_button_off,
-                                color: isSelected
-                                    ? const Color(0xFFFF7F59)
-                                    : Colors.grey,
-                                size: 26,
-                              ),
-                            ),
-                          ),
-                          // Address text
-                          Expanded(
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
+                    const SizedBox(height: 8),
+                    ..._addresses.map((address) {
+                      final isSelected =
+                          address['address'] == _selectedAddress?['address'];
+                      final String displayText =
+                          address['label'] ?? address['address'];
+                      return Container(
+                        margin: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? const Color(0xFFFFF5F2)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            InkWell(
+                              borderRadius: BorderRadius.circular(20),
                               onTap: () {
                                 setState(() {
                                   _selectedAddress = address;
                                 });
-                                setModalState(() {});
-                                Navigator.pop(context, address);
+                                Navigator.pop(context);
                               },
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 0),
-                                child: Text(
-                                  address,
-                                  style: TextStyle(
-                                    fontFamily: 'SofiaSans',
-                                    fontSize: 16,
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                    color: isSelected
-                                        ? const Color(0xFFFF7F59)
-                                        : Colors.black,
+                                padding:
+                                    const EdgeInsets.only(left: 4, right: 12),
+                                child: Icon(
+                                  isSelected
+                                      ? Icons.radio_button_checked
+                                      : Icons.radio_button_off,
+                                  color: isSelected
+                                      ? const Color(0xFFFF7F59)
+                                      : Colors.grey,
+                                  size: 26,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () {
+                                  setState(() {
+                                    _selectedAddress = address;
+                                  });
+                                  Navigator.pop(context);
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14, horizontal: 0),
+                                  child: Text(
+                                    displayText,
+                                    style: TextStyle(
+                                      fontFamily: 'SofiaSans',
+                                      fontSize: 16,
+                                      fontWeight: isSelected
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                      color: isSelected
+                                          ? const Color(0xFFFF7F59)
+                                          : Colors.black,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
+                            IconButton(
+                              icon: const Icon(Icons.edit,
+                                  color: Color(0xFFFF7F59), size: 20),
+                              splashRadius: 20,
+                              onPressed: () async {
+                                Navigator.pop(context);
+                                _showAddOrEditAddressDialog(
+                                    existingAddress: address);
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                    Padding(
+                      padding:
+                          const EdgeInsets.only(left: 20, top: 8, bottom: 8),
+                      child: TextButton.icon(
+                        onPressed: () async {
+                          Navigator.pop(context);
+                          _showAddOrEditAddressDialog();
+                        },
+                        icon: const Icon(Icons.add, color: Color(0xFFFF7F59)),
+                        label: const Text(
+                          'Add Address',
+                          style: TextStyle(
+                            fontFamily: 'SofiaSans',
+                            color: Color(0xFFFF7F59),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
                           ),
-                          // Edit icon
-                          IconButton(
-                            icon: const Icon(Icons.edit, color: Color(0xFFFF7F59), size: 20),
-                            splashRadius: 20,
-                            onPressed: () async {
-                              final controller = TextEditingController(text: address);
-                              final result = await showDialog<Map<String, dynamic>>(
-                                context: context,
-                                builder: (context) {
-                                  return AlertDialog(
-                                    title: const Text('Edit Address'),
-                                    content: TextField(
-                                      controller: controller,
-                                      maxLines: 3,
-                                      decoration: const InputDecoration(
-                                        hintText: 'Edit address',
-                                      ),
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context),
-                                        child: const Text('Cancel'),
-                                      ),
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context, {'delete': true}),
-                                        child: const Text(
-                                          'Delete',
-                                          style: TextStyle(color: Colors.redAccent),
-                                        ),
-                                      ),
-                                      ElevatedButton(
-                                        onPressed: () {
-                                          Navigator.pop(context, {
-                                            'edit': controller.text.trim()
-                                          });
-                                        },
-                                        child: const Text('Save'),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              );
-                              if (result != null && result['edit'] != null && result['edit'].isNotEmpty) {
-                                final idx = _addresses.indexOf(address);
-                                setState(() {
-                                  _addresses[idx] = result['edit'];
-                                  if (_selectedAddress == address) _selectedAddress = result['edit'];
-                                });
-                                setModalState(() {});
-                              } else if (result != null && result['delete'] == true) {
-                                setState(() {
-                                  _addresses.remove(address);
-                                  if (_selectedAddress == address && _addresses.isNotEmpty) {
-                                    _selectedAddress = _addresses.first;
-                                  }
-                                });
-                                setModalState(() {});
-                              }
-                            },
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                  Padding(
-                    padding: const EdgeInsets.only(left: 20, top: 8, bottom: 8),
-                    child: TextButton.icon(
-                      onPressed: () async {
-                        final newAddress = await showDialog<String>(
-                          context: context,
-                          builder: (context) {
-                            final controller = TextEditingController();
-                            return AlertDialog(
-                              title: const Text('Add New Address'),
-                              content: TextField(
-                                controller: controller,
-                                maxLines: 3,
-                                decoration: const InputDecoration(
-                                  hintText: 'Enter new address',
-                                ),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text('Cancel'),
-                                ),
-                                ElevatedButton(
-                                  onPressed: () {
-                                    Navigator.pop(context, controller.text.trim());
-                                  },
-                                  child: const Text('Add'),
-                                ),
-                              ],
-                            );
-                          },
-                        );
-                        if (newAddress != null && newAddress.isNotEmpty) {
-                          setState(() {
-                            _addresses.add(newAddress);
-                            _selectedAddress = newAddress;
-                          });
-                          setModalState(() {});
-                        }
-                      },
-                      icon: const Icon(Icons.add, color: Color(0xFFFF7F59)),
-                      label: const Text(
-                        'Add Address',
-                        style: TextStyle(
-                          fontFamily: 'SofiaSans',
-                          color: Color(0xFFFF7F59),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                        ),
+                        style: TextButton.styleFrom(
+                          alignment: Alignment.centerLeft,
+                          padding: EdgeInsets.zero,
                         ),
                       ),
-                      style: TextButton.styleFrom(
-                        alignment: Alignment.centerLeft,
-                        padding: EdgeInsets.zero,
-                      ),
                     ),
+                  ],
+                ),
+              );
+          },
+        );
+      },
+    );
+  }
+
+  void _showAddOrEditAddressDialog({Map<String, dynamic>? existingAddress}) {
+    final labelController =
+        TextEditingController(text: existingAddress?['label']);
+    final addressController =
+        TextEditingController(text: existingAddress?['address']);
+    final latController = TextEditingController(
+        text: existingAddress?['latitude']?.toString());
+    final lonController = TextEditingController(
+        text: existingAddress?['longitude']?.toString());
+
+    List<Map<String, String>> suggestions = [];
+    bool isLoading = false;
+    Timer? debounce;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void searchAddress(String value) {
+              if (debounce?.isActive ?? false) debounce!.cancel();
+              debounce = Timer(const Duration(milliseconds: 500), () async {
+                if (value.isNotEmpty) {
+                  setDialogState(() => isLoading = true);
+                  final result = await _locationService
+                      .getAutocompleteSuggestions(value, apiKey!);
+                  setDialogState(() {
+                    suggestions = result;
+                    isLoading = false;
+                  });
+                } else {
+                  setDialogState(() => suggestions = []);
+                }
+              });
+            }
+
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16.0),
+              ),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 500),
+                padding: const EdgeInsets.all(20.0),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 20.0),
+                        child: Text(
+                          existingAddress == null
+                              ? 'Add New Address'
+                              : 'Edit Address',
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                      ),
+                      TextField(
+                          controller: labelController,
+                          decoration: const InputDecoration(
+                              labelText: 'Label (e.g., Home, Work)')),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: addressController,
+                        onChanged: searchAddress,
+                        decoration: const InputDecoration(
+                            labelText: 'Search Full Address'),
+                      ),
+                      if (isLoading)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 10),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                      if (suggestions.isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(top: 8),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey.shade300),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: SizedBox(
+                            height: 150,
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: suggestions.length,
+                              separatorBuilder: (context, index) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final suggestion = suggestions[index];
+                                return ListTile(
+                                  title: Text(suggestion['description']!),
+                                  onTap: () async {
+                                    final selectedDescription =
+                                        suggestion['description']!;
+                                    final details = await _locationService
+                                        .getPlaceDetails(
+                                            suggestion['place_id']!, apiKey!);
+                                    if (details != null) {
+                                      setDialogState(() {
+                                        addressController.text =
+                                            selectedDescription;
+                                        latController.text =
+                                            details['latitude'].toString();
+                                        lonController.text =
+                                            details['longitude'].toString();
+                                        suggestions = [];
+                                      });
+                                    }
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                              child: TextField(
+                                  controller: latController,
+                                  decoration: const InputDecoration(
+                                      labelText: 'Latitude'),
+                                  keyboardType: TextInputType.number)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                              child: TextField(
+                                  controller: lonController,
+                                  decoration: const InputDecoration(
+                                      labelText: 'Longitude'),
+                                  keyboardType: TextInputType.number)),
+                        ],
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 20.0),
+                        child: Row(
+                          children: [
+                            if (existingAddress != null)
+                              TextButton(
+                                onPressed: () async {
+                                  Navigator.pop(context);
+                                  await _deleteAddress(existingAddress);
+                                },
+                                child: const Text('Delete',
+                                    style:
+                                        TextStyle(color: Colors.redAccent)),
+                              ),
+                            const Spacer(),
+                            TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('Cancel')),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: () async {
+                                final newAddressData = {
+                                  'label': labelController.text.trim(),
+                                  'address': addressController.text.trim(),
+                                  'latitude': double.tryParse(
+                                          latController.text.trim()) ??
+                                      0.0,
+                                  'longitude': double.tryParse(
+                                          lonController.text.trim()) ??
+                                      0.0,
+                                };
+
+                                if (newAddressData['address'] == '' ||
+                                    newAddressData['latitude'] == 0.0) {
+                                  return;
+                                }
+
+                                if ((newAddressData['label'] as String)
+                                    .isEmpty) {
+                                  newAddressData['label'] =
+                                      newAddressData['address'] as String;
+                                }
+
+                                Navigator.pop(context);
+                                if (existingAddress == null) {
+                                  await _saveNewAddress(newAddressData);
+                                } else {
+                                  await _updateAddress(
+                                      existingAddress, newAddressData);
+                                }
+                              },
+                              child: const Text('Save'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             );
           },
         );
       },
-    );
-    // No need to update _selectedAddress here, it's handled inside the modal now
+    ).whenComplete(() {
+      debounce?.cancel();
+    });
   }
 
   void _navigateToFeedback(BuildContext context) {
