@@ -1,7 +1,9 @@
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.http import require_GET
-from .get_restaurants import get_nearby_recommend_restaurants_logic # Make sure your logic function is imported
-from .content_based import get_content_based_recommendations, content_df
+from django.views.decorators.csrf import csrf_exempt
+import json
+from .get_restaurants import get_nearby_recommend_restaurants_logic
+from .content_based import get_content_based_recommendations
 from .collaborative import get_collaborative_filtering_recommendations
 from .hybrid import get_hybrid_recommendations
 import sys
@@ -38,30 +40,27 @@ def get_restaurants_api(request: HttpRequest):
         print(f"An unexpected error occurred in get_restaurants_api: {e}", file=sys.stderr)
         return JsonResponse({"error": "An internal server error occurred."}, status=500)
     
-@require_GET
-def get_hybrid_recommendations_api(request: HttpRequest):
-    """
-    API endpoint to generate hybrid recommendations for a given user.
-    """
-    user_id = request.GET.get('user_id')
-    if not user_id:
-        return JsonResponse({"error": "Missing required parameter: user_id"}, status=400)
 
-    try:
-        print(f"Generating recommendations for user: {user_id}", file=sys.stderr)
-        
-        # 1. Get Content-Based recommendations
-        content_recs = get_content_based_recommendations(user_id)
-        
-        # 2. Get Collaborative Filtering recommendations
-        collab_recs = get_collaborative_filtering_recommendations(user_id, content_df)
-        
-        # 3. Get Hybrid recommendations
-        hybrid_recs = get_hybrid_recommendations(content_recs, collab_recs)
-        
-        # Return the top 20 recommendations
-        return JsonResponse(hybrid_recs[:20], safe=False)
+@csrf_exempt
+def get_hybrid_recommendations_api(request):
+    if request.method == 'POST':
+        try:
+            # The user's profile and restaurant list are now in the POST body
+            data = json.loads(request.body)
+            restaurants = data.get('restaurants')
+            user_profile = data.get('user_profile')
 
-    except Exception as e:
-        print(f"An error occurred during recommendation generation: {e}", file=sys.stderr)
-        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+            if not restaurants or not user_profile:
+                return JsonResponse({'error': 'restaurants and user_profile are required in the request body'}, status=400)
+
+            # Generate personalized hybrid recommendations
+            recommendations = get_hybrid_recommendations(user_profile, restaurants)
+            
+            return JsonResponse(recommendations, safe=False)
+
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON in request body'}, status=400)
+        except Exception as e:
+            return JsonResponse({'error': f'An unexpected error occurred: {str(e)}'}, status=500)
+
+    return JsonResponse({'error': 'Only POST method is allowed'}, status=405)

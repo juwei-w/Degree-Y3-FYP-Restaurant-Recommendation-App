@@ -1,116 +1,109 @@
-from content_based import get_content_based_recommendations, print_content_based_recommendations, content_df
-from collaborative import get_collaborative_filtering_recommendations, print_collaborative_filtering_recommendations, random, user_ids
-import os
+from .content_based import get_content_based_recommendations
+from .collaborative import get_collaborative_filtering_recommendations
 import json
-from reinforcement_learning import precision_at_k, recall_at_k, mean_reciprocal_rank
+import os
 
-# Hybrid Approach with dictionary
-def get_hybrid_recommendations(content_based_recommendations, collaborative_filtering_recommendations):
-    # Combine and deduplicate using 'place_id' or 'name' as unique key
-    seen = set()
-    hybrid_recommendations = {}
+def _save_hybrid_log(log_data):
+    """Saves recommendation data to a JSON file for debugging."""
+    try:
+        # Define the path relative to the project's base directory
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_dir = os.path.join(base_dir, 'assets', 'restaurant_data')
+        os.makedirs(log_dir, exist_ok=True)
 
-    # Add content-based recommendations to the hybrid recommendations dictionary
-    for rec in content_based_recommendations:
-        unique_key = rec.get('place_id') or rec.get('name')
-        if unique_key not in seen:
-            seen.add(unique_key)
-            hybrid_recommendations[unique_key] = {**rec, 'source': 'Content-Based'}
-        else:
-            # If the recommendation is already in the hybrid, update the source to "Both"
-            hybrid_recommendations[unique_key]['source'] = 'Content-Based & Collaborative Filtering'
-
-    # Add collaborative filtering recommendations to the hybrid recommendations dictionary
-    for rec in collaborative_filtering_recommendations:
-        # If rec is a Prediction object, use its 'iid' as the unique identifier
-        unique_key = rec.get('place_id')  # The 'iid' is the item ID, which corresponds to the place_id in this case
-        if unique_key not in seen:
-            seen.add(unique_key)
-            hybrid_recommendations[unique_key] = {**rec, 'source': 'Collaborative Filtering'}
-        else:
-            # If the recommendation is already in the hybrid, update the source to "Both"
-            hybrid_recommendations[unique_key]['source'] = 'Content-Based & Collaborative Filtering'
-
-    # Sort by score (descending)
-    sorted_recommendations = sorted(hybrid_recommendations.values(), key=lambda x: x.get('score', 0) if isinstance(x, dict) else getattr(x, 'est', 0), reverse=True)
-
-    return sorted_recommendations
-
-def print_hybrid_recommendations(sorted_recommendations, top_n):
-    print("\n📊 Hybrid Recommendations")
-    print("-" * 50)
-    for i, rec in enumerate(sorted_recommendations[:top_n], start=1):
-        name = f"{rec.get('name')}"  # If name is not available in the Prediction, use item ID
-        categories = rec.get('categories')  # Collaborative filtering may not have categories
-        score = rec.get('score', 0)  # The estimated rating from collaborative filtering
-        source = rec.get('source', 'Unknown')
+        # Find the next available file number
+        counter = 1
+        while os.path.exists(os.path.join(log_dir, f"hybrid_data_{counter}.json")):
+            counter += 1
         
-        print(f"{i}. 🍴 {name}")
-        print(f"   🔖 Categories: {categories if categories else 'N/A'}")
-        print(f"   ⭐ Score: {score:.4f}")
-        print(f"   🏷  Source: {source}")
-        print("-" * 50)
+        file_path = os.path.join(log_dir, f"hybrid_data_{counter}.json")
+        print(f"[HYBRID LOG] Attempting to save debug log to: {file_path}") # <-- ADDED PRINT
 
-def save_hybrid_recommendations_to_json(hybrid_recommendations, user_id):
-    """
-    Saves hybrid recommendations to a JSON file.
+        with open(file_path, 'w') as f:
+            # Use default=str to handle non-serializable data like Timestamps
+            json.dump(log_data, f, indent=4, default=str)
+    except Exception as e:
+        # Print error but don't crash the recommendation request
+        print(f"Error saving debug log: {e}")
 
-    Parameters:
-    - hybrid_recommendations: list of recommendation dictionaries
-    - user_id: ID of the user for which recommendations were generated
-    - output_dir: directory to save the JSON file (default: 'output')
-    - filename_prefix: prefix for the output file name
+def _combine_and_rank_recommendations(content_recs, collab_recs, weights):
     """
-    output_dir = "Hybrid_Output_json"
-    filename_prefix = "Hybrid_Output"
+    Combines scores from content-based and collaborative models using weighted averaging.
+
+    Args:
+        content_recs (list): Recommendations from the content-based model. This list is
+                             treated as the master list because it has already filtered out
+                             restaurants based on user restrictions.
+        collab_recs (list): Recommendations from the collaborative model.
+        weights (dict): A dictionary with 'content' and 'collab' keys for weighting.
+
+    Returns:
+        list: A sorted list of restaurant dictionaries with a 'final_score'.
+    """
+    # Create a lookup map for collaborative scores for efficiency
+    collab_scores_map = {rec['place_id']: rec.get('score', 0) for rec in collab_recs if 'place_id' in rec}
     
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
+    final_recommendations = []
+    for rec in content_recs:
+        place_id = rec.get('place_id')
+        if not place_id:
+            continue
 
-    # Create filename with user ID
-    filename = f"{filename_prefix}_user_{user_id}.json"
-    filepath = os.path.join(output_dir, filename)
+        content_score = rec.get('score', 0)
+        collab_score = collab_scores_map.get(place_id, 0)
 
-    # Serialize the recommendations to JSON
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(hybrid_recommendations, f, ensure_ascii=False, indent=4)
+        # Calculate the weighted hybrid score
+        hybrid_score = (content_score * weights['content']) + (collab_score * weights['collab'])
+        
+        # Add the final score to the restaurant details and remove the intermediate score
+        rec['final_score'] = hybrid_score
+        if 'score' in rec:
+            del rec['score']
+        
+        final_recommendations.append(rec)
 
-    print(f"✅ Saved hybrid recommendations to {filepath}")
+    # Sort by the new final_score, descending
+    return sorted(final_recommendations, key=lambda x: x['final_score'], reverse=True)
 
-# --- Example Usage for Evaluation Metrics ---
-def evaluate_recommendations(hybrid_recommendations, user_relevant_items, k=10):
+
+def get_hybrid_recommendations(user_profile, restaurants_data):
     """
-    Evaluates the hybrid recommendations using Precision@K, Recall@K, and MRR.
-    - hybrid_recommendations: list of recommended items
-    - user_relevant_items: list of items relevant to the user
-    - k: top K items to consider
+    Orchestrates the hybrid recommendation process.
+    
+    Args:
+        user_profile (dict): A dictionary containing the user's profile data (uid, preferences, etc.).
+        restaurants_data (list): A list of restaurant dictionaries from the Flutter app.
+
+    Returns:
+        list: A sorted list of recommended restaurants.
     """
-    precision = precision_at_k(hybrid_recommendations, user_relevant_items, k)
-    recall = recall_at_k(hybrid_recommendations, user_relevant_items, k)
-    mrr = mean_reciprocal_rank(hybrid_recommendations, user_relevant_items)
+    user_id = user_profile.get('uid', 'unknown_user')
+    print(f"\n--- [HYBRID] START: Generating hybrid recommendations for user {user_id} ---")
+    # 1. Get content-based recommendations.
+    print("[HYBRID] Calling Content-Based model...")
+    content_recs = get_content_based_recommendations(user_profile, restaurants_data)
+    print(f"[HYBRID] Content-Based model returned {len(content_recs)} recommendations.")
 
-    print(f"\n📊 Evaluation Metrics:")
-    print(f"Precision@{k}: {precision:.2f}")
-    print(f"Recall@{k}: {recall:.2f}")
-    print(f"MRR: {mrr:.2f}")
+    # 2. Get collaborative filtering scores.
+    print("[HYBRID] Calling Collaborative Filtering model...")
+    collab_recs = get_collaborative_filtering_recommendations(user_profile, restaurants_data)
+    print(f"[HYBRID] Collaborative Filtering model returned {len(collab_recs)} scores.")
 
-# Example usage
-random_user_id = random.choice(user_ids)
-top_n = 10
+    # 3. Combine the results.
+    print("[HYBRID] Combining scores...")
+    weights = {'content': 0.6, 'collab': 0.4}
+    final_recommendations = _combine_and_rank_recommendations(content_recs, collab_recs, weights)
+    print(f"[HYBRID] Combination complete. Total recommendations: {len(final_recommendations)}")
 
-# Get content-based recommendations (list of dicts)
-content_based_recommendations = get_content_based_recommendations(random_user_id)
-print_content_based_recommendations(content_based_recommendations, top_n)
+    # --- Save log for debugging ---
+    _save_hybrid_log({
+        "user_id": user_id,
+        "user_profile_received": user_profile,
+        "weights": weights,
+        "content_recs_with_scores": content_recs,
+        "collab_recs_with_scores": collab_recs,
+        "final_hybrid_recommendations": final_recommendations
+    })
 
-# Get collaborative recommendations (list of dicts)
-collaborative_filtering_recommendations = get_collaborative_filtering_recommendations(random_user_id, content_df)
-print_collaborative_filtering_recommendations(collaborative_filtering_recommendations, random_user_id, top_n)
-
-hybrid_recommendations = get_hybrid_recommendations(content_based_recommendations, collaborative_filtering_recommendations)
-print_hybrid_recommendations(hybrid_recommendations, top_n)
-
-save_hybrid_recommendations_to_json(hybrid_recommendations, random_user_id)
-
-# Example usage
-user_relevant_items = ["place_id_1", "place_id_2", "place_id_3"]  # Replace with actual relevant items
-evaluate_recommendations(hybrid_recommendations, user_relevant_items)
+    print(f"--- [HYBRID] END: Finished generating recommendations for user {user_id} ---\n")
+    return final_recommendations

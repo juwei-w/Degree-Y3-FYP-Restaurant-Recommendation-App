@@ -47,6 +47,6 @@ app.*.map.json
 # Node.js related
 node_modules/
 venv/
-.env/
+.env
 functions/
 firebase_key.json

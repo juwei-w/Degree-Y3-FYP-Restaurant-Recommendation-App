@@ -1584,10 +1584,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _navigateToRecommend(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => RecommendScreen(restaurants: restaurants)),
-    );
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              RecommendScreen(restaurants: restaurants, user: user),
+        ),
+      );
+    }
   }
 
   void _navigateToHome(BuildContext context) {

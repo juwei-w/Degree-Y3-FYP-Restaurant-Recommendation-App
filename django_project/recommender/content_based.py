@@ -1,57 +1,28 @@
-from collaborative import db
-
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.preprocessing import normalize
-from fuzzywuzzy import process
+from firebase_admin import firestore
 import math
-import ast
+import json
+import os
+import numpy as np
 
-weights = {
-    'tfidf_score': 0.3,         # Lower textual similarity weight
-    'category_score': 0.2,      # Increase category overlap weight
-    'rating_score': 0.15,       # Keep rating similarity
-    'price_score': 0.15,         # Keep price similarity
-    'distance_score': 0.2      # Keep proximity similarity
-}
+def _save_content_log(log_data):
+    """Saves content-based data to a JSON file for debugging."""
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        log_dir = os.path.join(base_dir, 'assets', 'restaurant_data')
+        os.makedirs(log_dir, exist_ok=True)
+        counter = 1
+        while os.path.exists(os.path.join(log_dir, f"content_data_{counter}.json")):
+            counter += 1
+        file_path = os.path.join(log_dir, f"content_data_{counter}.json")
+        with open(file_path, 'w') as f:
+            json.dump(log_data, f, indent=4, default=str)
+    except Exception as e:
+        print(f"Error saving content-based log: {e}")
 
-# ===== Load the dataset ===== #
-
-data = pd.read_csv("./Google_Map_Output_csv/map_output_5.csv")
-content_df = data[['place_id', 'name', 'categories', 'address', 'longitude', 'latitude', 'types', 
-                   'rating', 'price_level', 'reviews', 'editorial_summary', 'business_status']].copy()      # Select relevant columns for content-based filtering
-
-# ======================= # # Content-based filtering recommends items similar to those a user has liked in the past, based on item features.
-# Content-Based Filtering # # It uses the features of the items to recommend other similar items, regardless of user preferences.
-# ======================= # # It is based on the idea that if a user liked a certain item, they will also like similar items.
-
-# # Preprocessing function to remove stopwords and stem the text
-# def preprocess_text(text):
-#     # Preprocessing: Remove stopwords, apply stemming
-#     stop_words = set(stopwords.words('english'))
-#     stemmer = PorterStemmer()
-
-#     words = text.split()
-#     words = [word for word in words if word.lower() not in stop_words]  # Remove stopwords
-#     words = [stemmer.stem(word) for word in words]  # Apply stemming
-#     return " ".join(words)
-
-def preprocess_data():
-    # Apply preprocessing to the 'Content' column
-    content_df['editorial_summary'].fillna("N/A", inplace=True)
-    content_df['price_level'].fillna(content_df['price_level'].median(), inplace=True)
-    content_df['rating'].fillna(content_df['rating'].median(), inplace=True)
-    content_df['Processed_Content'] = (
-        content_df['name'].fillna('N/A') + " " +
-        content_df['categories'] + " " +
-        content_df['editorial_summary'].fillna("N/A") + " " +
-        content_df['reviews'].fillna('N/A')
-    )
-    # content_df['Processed_Content'] = content_df['Processed_Content'].apply(preprocess_text)
-
-
-# Function to calculate the Haversine distance between two geographical points
+# This function is kept in case distance calculations are needed in the future.
 def haversine_distance(lat1, lon1, lat2, lon2):
     R = 6371  # Earth radius in KM
     phi1 = math.radians(lat1)
@@ -65,121 +36,104 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return R * c  # Distance in kilometers
 
 # ===== Function to Get Content-Based Recommendations ===== #
-def get_content_based_recommendations(random_user_id):
-    all_recommendations = []  # List to store all recommendations
+def get_content_based_recommendations(user_profile, restaurants_data):
+    """
+    Generates personalized recommendations based on user profile and a list of restaurants.
+    
+    Args:
+        user_profile (dict): The user's profile data sent from the client.
+        restaurants_data (list): A list of restaurant dictionaries from the Flutter app.
 
-    preprocess_data()  # Preprocess the data
+    Returns:
+        list: A sorted list of recommended restaurant dictionaries, with scores.
+    """
+    print("  [CONTENT] START: Content-based filtering...")
+    if not restaurants_data:
+        return []
 
-    # ===== Initialize the TF-IDF vectorizer ===== #
-    tfidf_vectorizer = TfidfVectorizer(norm='l2', stop_words='english', ngram_range=(1, 2), min_df=3)  # Use n-grams and ignore stopwords
-    content_matrix = tfidf_vectorizer.fit_transform(content_df['Processed_Content'])  # TF-IDF transformation
-    content_matrix = normalize(content_matrix, axis=1)  # Normalize the matrix to avoid dominance of longer texts
+    # --- Use User Profile from arguments (Firestore lookup is no longer needed) ---
+    user_preferences = set(user_profile.get("preferences", []))
+    user_restrictions = set(user_profile.get("restrictions", []))
+    print(f"  [CONTENT] User Preferences: {user_preferences}")  # <-- ADDED PRINT
+    print(f"  [CONTENT] User Restrictions: {user_restrictions}")  # <-- ADDED PRINT
+    
+    favourites_list = user_profile.get("favourites", [])
+    user_favourite_restaurants = {
+        fav['place_id'] for fav in favourites_list if isinstance(fav, dict) and 'place_id' in fav
+    }
 
-    # Compute cosine similarity between the content matrix and itself
-    content_similarity = cosine_similarity(content_matrix)
+    # Convert incoming restaurant list to a DataFrame
+    content_df = pd.DataFrame(restaurants_data)
 
-    # Get user favourite restaurants from Firebase
-    user_doc = db.collection("users").document(random_user_id).get()  # Get the user document from Firestore
-    user_data = user_doc.to_dict()  # Convert the document to a dictionary
-    user_favourite_restaurants = user_data.get("favourite_restaurants", [])  # Get the user's favourite restaurants
+    # Preprocess the DataFrame
+    content_df['editorial_summary'] = content_df['editorial_summary'].fillna("N/A")
+    content_df['rating'] = content_df['rating'].fillna(content_df['rating'].median())
+    
+    # Ensure categories are lists and create a text representation for TF-IDF
+    content_df['categories'] = content_df['categories'].apply(lambda x: x if isinstance(x, list) else [])
+    content_df['Processed_Content'] = (
+        content_df['name'].fillna('N/A') + " " +
+        content_df['categories'].apply(lambda cats: ' '.join(cats)) + " " +
+        content_df['editorial_summary'].fillna("N/A")
+    )
 
-    for place_id in user_favourite_restaurants:
-        # Find the index of the input place in content_df
-        index = content_df[content_df['place_id'] == place_id].index[0]
-        input_place = content_df.loc[index]
-        input_categories = set(eval(input_place['categories']))
-        input_lat = input_place['latitude']
-        input_lon = input_place['longitude']
-        input_rating = input_place['rating']
-        input_price = input_place['price_level']
+    # --- TF-IDF Similarity to User's Favorites ---
+    tfidf_vectorizer = TfidfVectorizer(stop_words='english')
+    content_matrix = tfidf_vectorizer.fit_transform(content_df['Processed_Content'])
+    
+    favorite_indices = content_df[content_df['place_id'].isin(user_favourite_restaurants)].index
+    tfidf_scores = [0] * len(content_df)
+    if not favorite_indices.empty:
+        user_profile_vector = content_matrix[favorite_indices].mean(axis=0)
+        # CORRECTED: Convert the numpy.matrix to a numpy.ndarray before calculating similarity
+        user_profile_vector_array = np.asarray(user_profile_vector)
+        tfidf_scores = cosine_similarity(user_profile_vector_array, content_matrix).flatten()
 
-        similarity_scores = content_similarity[index]
+    # --- Scoring Loop ---
+    all_recommendations = []
+    for idx, rec in content_df.iterrows():
+        rec_categories = set(rec['categories'])
 
-        recommendations = []
+        # 1. Restriction Filter (Hard Filter)
+        # Assuming restrictions are categories to avoid
+        if user_restrictions.intersection(rec_categories):
+            continue  # Skip restaurants that match user's restrictions
 
-        # Loop through all restaurants in content_df to generate recommendations
-        for idx, rec in content_df.iterrows():
-            if idx == index:
-                continue  # Skip the input restaurant itself
+        # 2. Preference Score
+        # How many of the restaurant's categories match the user's preferences?
+        preference_score = 0
+        if user_preferences:
+            preference_score = len(user_preferences.intersection(rec_categories)) / len(user_preferences)
 
-            rec_categories = set(eval(rec['categories']))
-            category_overlap = input_categories.intersection(rec_categories)
+        # 3. Rating Score (Normalized 0-1)
+        rating_score = rec.get('rating', 0) / 5.0
 
-            # Distance calculation
-            distance_km = haversine_distance(input_lat, input_lon, rec['latitude'], rec['longitude'])
+        # 4. TF-IDF Score (Similarity to favorites)
+        tfidf_score = tfidf_scores[idx]
 
-            # Compare ratings and price level
-            rating_diff = abs(rec['rating'] - input_rating)
-            price_diff = abs(rec['price_level'] - input_price)
-
-            # Normalize feature components
-            category_score = 1 if len(category_overlap) > 0 else 0  # Binary match score
-
-            max_rating = 5.0
-            rating_score = 1 - (rating_diff / max_rating) if pd.notna(rating_diff) else 0
-
-            max_price_diff = 3  # assume max price level diff is 3
-            price_score = 1 - (price_diff / max_price_diff) if pd.notna(price_diff) else 0
-
-            max_distance = 20  # assume anything beyond 20 km is far
-            distance_score = 1 - (distance_km / max_distance) if distance_km <= max_distance else 0
-
-            # Weighted score
-            final_score = (
-                weights['tfidf_score'] * similarity_scores[idx] +
-                weights['category_score'] * category_score +
-                weights['rating_score'] * rating_score +
-                weights['price_score'] * price_score +
-                weights['distance_score'] * distance_score
-            )
-
-            # Convert the full row to a dictionary
-            rec_data = rec.to_dict()
-
-            # Add the computed scores
-            rec_data.update({
-                'score': final_score,
-                'common_categories': list(category_overlap)
-            })
-
-            recommendations.append(rec_data)
-
-
-        print(f"Input Place: {input_place['name']}")
-        print(f"Categories: {input_categories}")
-        print("-" * 50)
-
-        # Sort recommendations after calculating all scores and take the top N
-        recommendations = sorted(recommendations, key=lambda x: x['score'], reverse=True)
+        # 5. Final Weighted Score
+        # Weights are now dynamic. If tfidf_score is 0, its weight is given to preference_score.
+        has_tfidf_score = tfidf_score > 0
         
-        # Append recommendations for this place_id to the list of all recommendations
-        all_recommendations.extend(recommendations)
+        w_tfidf = 0.4 if has_tfidf_score else 0.0
+        w_preference = 0.4 if has_tfidf_score else 0.8 # Becomes more important if no favorites are nearby
+        w_rating = 0.2
 
-    # Return the top N recommendations across all the input places
+        final_score = (
+            (w_tfidf * tfidf_score) +
+            (w_preference * preference_score) +
+            (w_rating * rating_score)
+        )
+
+        rec_data = rec.to_dict()
+        rec_data['score'] = final_score
+        all_recommendations.append(rec_data)
+
+    # Save log BEFORE sorting to see the raw scores
+    _save_content_log(all_recommendations) # <-- ADDED LOGGING
+
+    # Return the scored and sorted recommendations
+    print(f"  [CONTENT] END: Returning {len(all_recommendations)} scored recommendations.") # <-- ADDED PRINT
     return sorted(all_recommendations, key=lambda x: x['score'], reverse=True)
-
-# ===== Function to Print Content-Based Recommendations ===== #
-def print_content_based_recommendations(recommendations, top_n=10):
-    print("\n📊 Content-Based Recommendations (Prioritized Features)")
-    for i, rec in enumerate(sorted(recommendations, key=lambda x: x['score'], reverse=True)[:top_n], start=1):
-        print(f"{i}. 🍴 {rec['name']}")
-        print(f"   🔖 Categories: {rec['categories']}")
-        print(f"   ✅ Common Categories: {rec['common_categories']}")
-        print(f"   ⭐ Final Score: {rec['score']:.4f}")
-        # print(f"     · TF-IDF: {rec['tfidf']:.4f}")
-        # print(f"     · Category Match: {rec['category_score']}")
-        # print(f"     · Rating Score: {rec['rating_score']} (Rating: {rec['rating']})")
-        # print(f"     · Price Score: {rec['price_score']} (Price: {rec['price_level']})")
-        # print(f"     · Distance Score: {rec['distance_score']} ({rec['distance_km']} km)")
-        print(f"   🟢 Status: {rec['business_status']}")
-        print("-" * 50)
-
-
-# # ===== Example usage ===== #
-# random_place_id = content_df['place_id'].sample(1).values[0]  # Randomly select a place_id
-# content_based = get_content_based_recommendations(user_favourite_restaurants, 10)  # Now returns a list of dicts
-
-# # Print recommendations
-# print_content_based_recommendations(content_based)
 
 

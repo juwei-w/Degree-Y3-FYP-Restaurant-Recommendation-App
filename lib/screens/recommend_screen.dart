@@ -1,13 +1,18 @@
+import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
-// Add this import to access your API key for photo URLs
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class RecommendScreen extends StatefulWidget {
   // Add a field to hold the list of restaurants passed from another screen.
   final List<Map<String, dynamic>> restaurants;
+  final User user;
 
   // Update the constructor to require this list.
-  const RecommendScreen({Key? key, required this.restaurants}) : super(key: key);
+  const RecommendScreen({Key? key, required this.restaurants, required this.user})
+      : super(key: key);
 
   @override
   State<RecommendScreen> createState() => _RecommendScreenState();
@@ -26,6 +31,11 @@ class _RecommendScreenState extends State<RecommendScreen>
 
   // Add a state variable to track the card's drag offset.
   Offset _dragOffset = Offset.zero;
+
+  // New state variables for handling recommendations
+  List<Map<String, dynamic>> _recommendedRestaurants = [];
+  bool _isLoading = true;
+  String? _error;
 
   int currentIndex = 0;
 
@@ -62,7 +72,102 @@ class _RecommendScreenState extends State<RecommendScreen>
       curve: Curves.elasticOut,
     ));
 
-    // Remove: _cardSlideAnimation initialization
+    // Fetch personalized recommendations when the screen loads.
+    _fetchHybridRecommendations();
+  }
+
+  /// Helper function to recursively convert Firestore Timestamps to JSON-encodable strings.
+  dynamic _convertTimestamps(dynamic value) {
+    if (value is Timestamp) {
+      return value.toDate().toIso8601String();
+    }
+    if (value is Map<String, dynamic>) {
+      return value.map((key, val) => MapEntry(key, _convertTimestamps(val)));
+    }
+    if (value is List) {
+      return value.map((item) => _convertTimestamps(item)).toList();
+    }
+    return value;
+  }
+
+  /// Fetches personalized recommendations from the backend.
+  Future<void> _fetchHybridRecommendations() async {
+    // Use the user object passed through the widget constructor.
+    final user = widget.user;
+
+    if (widget.restaurants.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    try {
+      // --- 1. Fetch the user's full profile from Firestore ---
+      final userQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('uid', isEqualTo: user.uid)
+          .limit(1)
+          .get();
+
+      if (userQuery.docs.isEmpty) {
+        throw Exception("User profile not found in Firestore for UID: ${user.uid}");
+      }
+      final userProfileData = userQuery.docs.first.data();
+      
+      // --- 1.5 Convert Firestore Timestamps before encoding ---
+      final encodableUserProfile = _convertTimestamps(userProfileData);
+
+      // --- 2. Prepare the request for the backend ---
+      final String? baseUrl = dotenv.env['API_BASE_URL'];
+      if (baseUrl == null) {
+        throw Exception("API_BASE_URL not found in .env file");
+      }
+      // The URL no longer needs a query parameter
+      final url = Uri.parse('$baseUrl/recommender/hybrid_recommendations/');
+
+      // The body now includes both the restaurants and the user's profile
+      final requestBody = json.encode({
+        'restaurants': widget.restaurants,
+        'user_profile': encodableUserProfile, // CORRECTED KEY and use the converted profile
+      });
+
+      // --- 3. Make the POST request ---
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: requestBody,
+          )
+          .timeout(const Duration(seconds: 60));
+
+      if (mounted) {
+        if (response.statusCode == 200) {
+          final List<dynamic> jsonData = json.decode(response.body);
+          setState(() {
+            _recommendedRestaurants = jsonData
+                .map((item) => item as Map<String, dynamic>)
+                .toList();
+            _isLoading = false;
+          });
+        } else {
+          setState(() {
+            _isLoading = false;
+            _error =
+                "Error: Could not fetch recommendations (${response.statusCode}). Server response: ${response.body}";
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = "An error occurred: $e";
+        });
+      }
+    }
   }
 
   @override
@@ -140,7 +245,7 @@ class _RecommendScreenState extends State<RecommendScreen>
       // After swipe animation is complete, update the card index
       setState(() {
         if (isSwipeUp) {
-          if (currentIndex < widget.restaurants.length - 1) {
+          if (currentIndex < _recommendedRestaurants.length - 1) {
             currentIndex++;
           }
         } else {
@@ -158,21 +263,47 @@ class _RecommendScreenState extends State<RecommendScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Handle the case where no restaurants are passed in.
-    if (widget.restaurants.isEmpty) {
+    // Handle loading state
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFFF7B54),
+        body: const Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
+      );
+    }
+
+    // Handle error state
+    if (_error != null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text("Error"),
+          backgroundColor: const Color(0xFFFF7B54),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(_error!, textAlign: TextAlign.center),
+          ),
+        ),
+      );
+    }
+
+    // Handle the case where no recommendations are returned.
+    if (_recommendedRestaurants.isEmpty) {
       return Scaffold(
         appBar: AppBar(
           title: const Text("Recommendations"),
           backgroundColor: const Color(0xFFFF7B54),
         ),
         body: const Center(
-          child: Text("No restaurants to recommend."),
+          child: Text("No personalized recommendations found."),
         ),
       );
     }
 
-    // Get the current restaurant from the passed-in list.
-    final restaurant = widget.restaurants[currentIndex];
+    // Get the current restaurant from the recommended list.
+    final restaurant = _recommendedRestaurants[currentIndex];
 
     // Construct the photo URL using the same logic as the home screen.
     String? photoUrl;
@@ -216,8 +347,8 @@ class _RecommendScreenState extends State<RecommendScreen>
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0xFFFF7B54),
                 Color(0xFFFF6B47),
+                Color(0xFFFF947A),
               ],
             ),
           ),
@@ -252,10 +383,26 @@ class _RecommendScreenState extends State<RecommendScreen>
                   child: Transform.translate(
                     offset: _dragOffset,
                     child: Padding(
-                      padding: const EdgeInsets.all(24.0),
+                      padding: const EdgeInsets.fromLTRB(24.0, 8.0, 24.0, 24.0),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.start,
                         children: [
+                          // --- TEMPORARY CODE FOR TESTING ---
+                          // This will display the recommendation score on the card.
+                          // Remove this before finalizing the UI.
+                          if (restaurant.containsKey('final_score'))
+                            Text(
+                              'Hybrid Score: ${restaurant['final_score'].toStringAsFixed(4)}',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.white,
+                                fontStyle: FontStyle.italic,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          // --- END OF TEMPORARY CODE ---
+
+
                           // Restaurant image
                           Container(
                             height: 280, // slightly smaller
@@ -441,7 +588,7 @@ class _RecommendScreenState extends State<RecommendScreen>
                                 );
                               },
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFFF5722),
+                                backgroundColor: const Color(0xFFFF6B47),
                                 foregroundColor: Colors.white,
                                 elevation: 8,
                                 shadowColor: Colors.black.withOpacity(0.3),
