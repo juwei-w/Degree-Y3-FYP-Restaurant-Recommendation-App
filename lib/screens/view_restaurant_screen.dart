@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'review_screen.dart';
+// Add this import to access environment variables for the API key
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class ViewRestaurantScreen extends StatefulWidget {
   final Map<String, dynamic> restaurant;
@@ -79,21 +81,70 @@ class _ViewRestaurantScreenState extends State<ViewRestaurantScreen> {
   }
 
   Widget _buildImageHeader() {
+    String? photoUrl;
+    // Get the Google Maps API key from your environment variables.
+    final String? apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
+
+    // This logic now matches the working implementation from your home screen.
+    // It checks for a list of photo references from the backend.
+    if (widget.restaurant['photos'] != null &&
+        widget.restaurant['photos'] is List &&
+        (widget.restaurant['photos'] as List).isNotEmpty) {
+      
+      // Get the photo reference string from the first item in the list.
+      final photoRef = widget.restaurant['photos'][0];
+
+      // Construct the full Google Maps Photo API URL if we have a reference and a key.
+      if (photoRef != null && apiKey != null) {
+        photoUrl =
+            'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=$photoRef&key=$apiKey';
+      }
+    }
+    
+    // Define the fallback local image asset.
+    final String fallbackImageAsset = 'assets/images/tacos.png';
+
     return Stack(
       children: [
         // Restaurant image
-        Container(
-          height: 200,
-          width: double.infinity,
-          decoration: BoxDecoration(
+        ClipRRect(
           borderRadius: BorderRadius.circular(20),
-            image: DecorationImage(
-              image: AssetImage(widget.restaurant['image'] ?? 'assets/images/tacos.png'),
-              fit: BoxFit.cover,
-            ),
+          child: Container(
+            height: 200,
+            width: double.infinity,
+            color: Colors.grey[200], // Background color while loading
+            child: (photoUrl != null)
+                // If a photo URL was successfully constructed, display it from the network.
+                ? Image.network(
+                    photoUrl,
+                    fit: BoxFit.cover,
+                    height: 200,
+                    width: double.infinity,
+                    // Show a loading indicator while the image is downloading.
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const Center(child: CircularProgressIndicator());
+                    },
+                    // If the network image fails to load, show the fallback asset.
+                    errorBuilder: (context, error, stackTrace) {
+                      return Image.asset(
+                        fallbackImageAsset,
+                        fit: BoxFit.cover,
+                        height: 200,
+                        width: double.infinity,
+                      );
+                    },
+                  )
+                // If no photo URL could be constructed, display the fallback local asset directly.
+                : Image.asset(
+                    fallbackImageAsset,
+                    fit: BoxFit.cover,
+                    height: 200,
+                    width: double.infinity,
+                  ),
           ),
         ),
-        
+
         // Back button
         Positioned(
           top: 16,

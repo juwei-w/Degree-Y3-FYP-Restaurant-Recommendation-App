@@ -5,8 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
-// Add the http package for making API calls
-import 'package:http/http.dart' as http;
 import '../services/location_service.dart';
 import 'feedback_screen.dart';
 import 'favourites_screen.dart';
@@ -14,7 +12,6 @@ import 'profile_screen.dart';
 import 'welcome_screen.dart';
 import 'recommend_screen.dart';
 import 'view_restaurant_screen.dart';
-import 'dart:developer'; // For log()
 
 final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
 
@@ -61,11 +58,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // If no address was marked as 'selected' in the database, default to current location
     if (_selectedAddress == null) {
-      await _getCurrentUserLocation(); // This will now also load restaurants
-    } else {
-      // If an address was found, load restaurants for it
-      await _loadRestaurantData();
+      await _getCurrentUserLocation();
     }
+
+    // Load restaurant data after the location has been finalized
+    _loadRestaurantData();
   }
 
   Future<void> _getCurrentUserLocation() async {
@@ -82,8 +79,6 @@ class _HomeScreenState extends State<HomeScreen> {
             'isSelected': true, // Flag for UI state
           };
         });
-        // After setting current location, load the restaurant data.
-        await _loadRestaurantData();
       }
     } catch (e) {
       if (mounted) {
@@ -96,8 +91,6 @@ class _HomeScreenState extends State<HomeScreen> {
             'isSelected': true, // Flag for UI state
           };
         });
-        // Attempt to load data even with a default location if needed
-        await _loadRestaurantData();
       }
     }
   }
@@ -157,65 +150,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadRestaurantData() async {
-    // This function now fetches live data from your Django backend
-    // using the coordinates from the currently selected address.
-    if (_selectedAddress == null) {
-      debugPrint("No selected address, cannot fetch restaurants.");
-      if (mounted) setState(() => restaurants = []);
-      return;
-    }
-
-    // Set a loading state by clearing the current list
-    if (mounted) {
-      setState(() {
-        restaurants = [];
-      });
-    }
-
-    try {
-      // Extract coordinates from the state
-      final lat = _selectedAddress!['latitude'];
-      final lon = _selectedAddress!['longitude'];
-
-      // --- DEBUG LOG ---
-      // This log will show the exact coordinates being used for the API call.
-      log(
-          "Selected location changed. New coordinates - Latitude: $lat, Longitude: $lon");
-      // --- END DEBUG LOG ---
-
-      // --- IMPORTANT NETWORK CONFIGURATION ---
-      // - For ANDROID EMULATOR: Use '10.0.2.2' to connect to your computer's localhost.
-      // - For PHYSICAL DEVICE (on same Wi-Fi): Use your computer's local IP address.
-      const String baseUrl = 'http://192.168.0.4:8000';
-      final radius = 5000; // 5km radius
-
-      // Corrected the API path to match the working endpoint from my_location_screen.
-      final url =
-          Uri.parse('$baseUrl/recommender/get_restaurants/?lat=$lat&lon=$lon&radius=$radius');
-
-      debugPrint("HomeScreen: Calling API: $url");
-      // Increased timeout to 60 seconds to give the backend more time to respond.
-      final response = await http.get(url).timeout(const Duration(seconds: 60));
-
-      if (response.statusCode == 200) {
-        final List<dynamic> jsonData = json.decode(response.body);
-        if (mounted) {
-          setState(() {
-            restaurants = jsonData
-                .where((item) =>
-                    item is Map<String, dynamic> && item['name'] != null)
-                .map<Map<String, dynamic>>(
-                    (item) => item as Map<String, dynamic>)
-                .toList();
-          });
-        }
-      } else {
-        debugPrint('Failed to load restaurants: ${response.statusCode}');
-        debugPrint('Response body: ${response.body}');
-      }
-    } catch (e) {
-      debugPrint('An error occurred while fetching restaurants: $e');
-    }
+    final String jsonString =
+        await rootBundle.loadString('assets/restaurant_data/django_data_2.json');
+    final List<dynamic> jsonData = json.decode(jsonString);
+    setState(() {
+      restaurants = jsonData
+          .where((item) => item is Map<String, dynamic> && item['name'] != null)
+          .map<Map<String, dynamic>>((item) => item as Map<String, dynamic>)
+          .toList();
+    });
   }
 
   /// Central method to update the address selection state in Firestore.
@@ -238,9 +181,8 @@ class _HomeScreenState extends State<HomeScreen> {
     // Update Firestore with the new list
     await userDocRef.update({'address': updatedAddresses});
 
-    // Refresh local state from the new source of truth and reload restaurants
+    // Refresh local state from the new source of truth
     await _fetchUserInfo();
-    await _loadRestaurantData();
   }
 
   Future<void> _saveNewAddress(Map<String, dynamic> newAddressData) async {
@@ -260,7 +202,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     await userDocRef.update({'address': updatedList});
     await _fetchUserInfo(); // Refresh UI, which will set the new address as selected
-    await _loadRestaurantData(); // Reload restaurants for the new address
   }
 
   Future<void> _updateAddress(Map<String, dynamic> oldAddressData,
@@ -283,7 +224,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     await userDocRef.update({'address': updatedAddresses});
     await _fetchUserInfo(); // Refresh UI
-    await _loadRestaurantData(); // Reload restaurants for the updated address
   }
 
   Future<void> _deleteAddress(Map<String, dynamic> addressToDelete) async {
@@ -304,9 +244,6 @@ class _HomeScreenState extends State<HomeScreen> {
     // After fetching, if no address is selected, get current location.
     if (_selectedAddress == null) {
       await _getCurrentUserLocation();
-    } else {
-      // If another address is now selected, reload for it.
-      await _loadRestaurantData();
     }
   }
 
@@ -963,9 +900,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           width: double.infinity,
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) =>
-                              Image.asset('assets/images/profile.png', height: 150, width: double.infinity, fit: BoxFit.cover),
+                              Image.asset('assets/images/tacos.png', height: 150, width: double.infinity, fit: BoxFit.cover),
                         )
-                      : Image.asset('assets/images/profile.png', height: 150, width: double.infinity, fit: BoxFit.cover),
+                      : Image.asset('assets/images/tacos.png', height: 150, width: double.infinity, fit: BoxFit.cover),
                 ),
                 // Rating badge
                 Positioned(
@@ -1479,7 +1416,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           controller: labelController,
                           decoration: const InputDecoration(
                               labelText: 'Label (e.g., Home, Work)')),
-
                       const SizedBox(height: 16),
                       TextField(
                         controller: addressController,
