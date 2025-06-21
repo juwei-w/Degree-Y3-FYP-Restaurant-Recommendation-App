@@ -1,11 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import '../services/location_service.dart';
+import '../services/restaurant_data_service.dart'; // Import the new service
 import 'feedback_screen.dart';
 import 'favourites_screen.dart';
 import 'profile_screen.dart';
@@ -150,15 +149,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadRestaurantData() async {
-    final String jsonString =
-        await rootBundle.loadString('assets/restaurant_data/django_data_2.json');
-    final List<dynamic> jsonData = json.decode(jsonString);
-    setState(() {
-      restaurants = jsonData
-          .where((item) => item is Map<String, dynamic> && item['name'] != null)
-          .map<Map<String, dynamic>>((item) => item as Map<String, dynamic>)
-          .toList();
-    });
+    // Use the shared service to load data.
+    await RestaurantDataService.instance.loadRestaurants();
+    if (mounted) {
+      setState(() {
+        // Get the loaded data from the service.
+        restaurants = RestaurantDataService.instance.restaurants;
+      });
+    }
   }
 
   /// Central method to update the address selection state in Firestore.
@@ -1588,7 +1586,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _navigateToRecommend(BuildContext context) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const RecommendScreen()),
+      MaterialPageRoute(builder: (context) => RecommendScreen(restaurants: restaurants)),
     );
   }
 

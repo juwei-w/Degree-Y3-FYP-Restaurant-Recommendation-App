@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
+// Add this import to access your API key for photo URLs
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class RecommendScreen extends StatefulWidget {
-  const RecommendScreen({Key? key}) : super(key: key);
+  // Add a field to hold the list of restaurants passed from another screen.
+  final List<Map<String, dynamic>> restaurants;
+
+  // Update the constructor to require this list.
+  const RecommendScreen({Key? key, required this.restaurants}) : super(key: key);
 
   @override
   State<RecommendScreen> createState() => _RecommendScreenState();
@@ -16,35 +22,10 @@ class _RecommendScreenState extends State<RecommendScreen>
   late AnimationController _cardAnimationController;
   late Animation<double> _likeAnimation;
   late Animation<double> _dislikeAnimation;
-  late Animation<Offset> _cardSlideAnimation;
+  // Remove: late Animation<Offset> _cardSlideAnimation;
 
-  // Sample restaurant data
-  final List<Map<String, dynamic>> restaurants = [
-    {
-      'name': 'Taco Bell Cyberjaya',
-      'rating': 4.5,
-      'reviews': '30+',
-      'priceRange': 'RM 1-20',
-      'image': 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400',
-      'tags': ['HALAL', 'VEGETARIAN', 'FAST FOOD'],
-    },
-    {
-      'name': 'Pizza Hut KLCC',
-      'rating': 4.2,
-      'reviews': '150+',
-      'priceRange': 'RM 15-35',
-      'image': 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400',
-      'tags': ['HALAL', 'ITALIAN', 'FAST FOOD'],
-    },
-    {
-      'name': 'Nando\'s Pavilion',
-      'rating': 4.7,
-      'reviews': '200+',
-      'priceRange': 'RM 20-40',
-      'image': 'https://images.unsplash.com/photo-1598515214211-89d3c73ae83b?w=400',
-      'tags': ['HALAL', 'GRILLED', 'CASUAL DINING'],
-    },
-  ];
+  // Add a state variable to track the card's drag offset.
+  Offset _dragOffset = Offset.zero;
 
   int currentIndex = 0;
 
@@ -60,7 +41,8 @@ class _RecommendScreenState extends State<RecommendScreen>
       vsync: this,
     );
     _cardAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 500),
+      // Adjust duration for swipe/snap animations
+      duration: const Duration(milliseconds: 300),
       vsync: this,
     );
 
@@ -80,13 +62,7 @@ class _RecommendScreenState extends State<RecommendScreen>
       curve: Curves.elasticOut,
     ));
 
-    _cardSlideAnimation = Tween<Offset>(
-      begin: Offset.zero,
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _cardAnimationController,
-      curve: Curves.easeInOut,
-    ));
+    // Remove: _cardSlideAnimation initialization
   }
 
   @override
@@ -121,82 +97,117 @@ class _RecommendScreenState extends State<RecommendScreen>
       _dislikeAnimationController.reverse();
       // Only proceed to next restaurant if it was newly disliked
       if (isDisliked && !wasDisliked) {
-        _nextRestaurant();
+        // Trigger the swipe up animation instead of calling the old method.
+        _animateSwipe(isSwipeUp: true);
       }
     });
   }
 
-  void _nextRestaurant() async {
-    if (currentIndex < restaurants.length - 1) {
-      _cardSlideAnimation = Tween<Offset>(
-        begin: Offset.zero,
-        end: const Offset(0, -1.0),
-      ).animate(CurvedAnimation(
-        parent: _cardAnimationController,
-        curve: Curves.easeInOut,
-      ));
-      await _cardAnimationController.forward();
+  // The _nextRestaurant and _previousRestaurant methods are no longer needed,
+  // as this logic is now handled by the gesture handlers and _animateSwipe.
 
+  /// Animates the card back to its original centered position.
+  void _animateSnapBack() {
+    final animation = Tween<Offset>(begin: _dragOffset, end: Offset.zero)
+        .animate(CurvedAnimation(parent: _cardAnimationController, curve: Curves.easeOut));
+
+    animation.addListener(() {
       setState(() {
-        currentIndex++;
-        isLiked = false;
-        isDisliked = false; // Reset dislike for new card
+        _dragOffset = animation.value;
       });
-      _cardAnimationController.reset();
+    });
 
-      _cardSlideAnimation = Tween<Offset>(
-        begin: const Offset(0, 1.0),
-        end: Offset.zero,
-      ).animate(CurvedAnimation(
-        parent: _cardAnimationController,
-        curve: Curves.easeInOut,
-      ));
-      await _cardAnimationController.forward();
-    }
+    _cardAnimationController.reset();
+    _cardAnimationController.forward();
   }
 
-  void _previousRestaurant() async {
-    if (currentIndex > 0) {
-      _cardSlideAnimation = Tween<Offset>(
-        begin: Offset.zero,
-        end: const Offset(0, 1.0),
-      ).animate(CurvedAnimation(
-        parent: _cardAnimationController,
-        curve: Curves.easeInOut,
-      ));
-      await _cardAnimationController.forward();
+  /// Animates the card off-screen and loads the next/previous card.
+  void _animateSwipe({required bool isSwipeUp}) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final endOffset = Offset(0, isSwipeUp ? -screenHeight : screenHeight);
 
+    final animation = Tween<Offset>(begin: _dragOffset, end: endOffset)
+        .animate(CurvedAnimation(parent: _cardAnimationController, curve: Curves.easeIn));
+
+    animation.addListener(() {
       setState(() {
-        currentIndex--;
-        isLiked = false;
-        isDisliked = false; // Reset dislike for new card
+        _dragOffset = animation.value;
       });
-      _cardAnimationController.reset();
+    });
 
-      _cardSlideAnimation = Tween<Offset>(
-        begin: const Offset(0, -1.0),
-        end: Offset.zero,
-      ).animate(CurvedAnimation(
-        parent: _cardAnimationController,
-        curve: Curves.easeInOut,
-      ));
-      await _cardAnimationController.forward();
-    }
+    _cardAnimationController.reset();
+    _cardAnimationController.forward().then((_) {
+      // After swipe animation is complete, update the card index
+      setState(() {
+        if (isSwipeUp) {
+          if (currentIndex < widget.restaurants.length - 1) {
+            currentIndex++;
+          }
+        } else {
+          if (currentIndex > 0) {
+            currentIndex--;
+          }
+        }
+        // Reset state for the new card
+        _dragOffset = Offset.zero;
+        isLiked = false;
+        isDisliked = false;
+      });
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final restaurant = restaurants[currentIndex];
+    // Handle the case where no restaurants are passed in.
+    if (widget.restaurants.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text("Recommendations"),
+          backgroundColor: const Color(0xFFFF7B54),
+        ),
+        body: const Center(
+          child: Text("No restaurants to recommend."),
+        ),
+      );
+    }
+
+    // Get the current restaurant from the passed-in list.
+    final restaurant = widget.restaurants[currentIndex];
+
+    // Construct the photo URL using the same logic as the home screen.
+    String? photoUrl;
+    final String? apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
+    if (restaurant['photos'] != null &&
+        restaurant['photos'] is List &&
+        (restaurant['photos'] as List).isNotEmpty) {
+      final photoRef = restaurant['photos'][0];
+      if (photoRef != null && apiKey != null) {
+        photoUrl =
+            'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=$photoRef&key=$apiKey';
+      }
+    }
 
     return Scaffold(
       body: GestureDetector(
+        // Replace onVerticalDragEnd with a full suite of gesture handlers.
+        onVerticalDragStart: (details) {
+          _cardAnimationController.stop();
+        },
+        onVerticalDragUpdate: (details) {
+          setState(() {
+            // Update the offset as the user drags.
+            _dragOffset += details.delta;
+          });
+        },
         onVerticalDragEnd: (details) {
-          if (details.primaryVelocity! < -500) {
-            // Swipe up - skip to next
-            _nextRestaurant();
-          } else if (details.primaryVelocity! > 500) {
-            // Swipe down - go to previous
-            _previousRestaurant();
+          final screenHeight = MediaQuery.of(context).size.height;
+          // Decide whether to swipe away or snap back based on velocity and position.
+          if (details.primaryVelocity! < -500 || _dragOffset.dy < -screenHeight / 4) {
+            _animateSwipe(isSwipeUp: true); // Swipe up
+          } else if (details.primaryVelocity! > 500 || _dragOffset.dy > screenHeight / 4) {
+            _animateSwipe(isSwipeUp: false); // Swipe down
+          } else {
+            _animateSnapBack(); // Return to center
           }
         },
         child: Container(
@@ -237,8 +248,9 @@ class _RecommendScreenState extends State<RecommendScreen>
 
                 // Main content
                 Expanded(
-                  child: SlideTransition(
-                    position: _cardSlideAnimation,
+                  // Replace SlideTransition with Transform.translate to follow the finger.
+                  child: Transform.translate(
+                    offset: _dragOffset,
                     child: Padding(
                       padding: const EdgeInsets.all(24.0),
                       child: Column(
@@ -260,20 +272,17 @@ class _RecommendScreenState extends State<RecommendScreen>
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(20),
-                              child: Image.network(
-                                restaurant['image'],
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    color: Colors.grey[300],
-                                    child: const Icon(
-                                      Icons.restaurant,
-                                      size: 60,
-                                      color: Colors.grey,
-                                    ),
-                                  );
-                                },
-                              ),
+                              child: photoUrl != null
+                                  ? Image.network(
+                                      photoUrl,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        // Use the asset image as a fallback on error.
+                                        return Image.asset('assets/images/tacos.png', fit: BoxFit.cover);
+                                      },
+                                    )
+                                  // Use the asset image as a fallback if no URL exists.
+                                  : Image.asset('assets/images/tacos.png', fit: BoxFit.cover),
                             ),
                           ),
 
@@ -288,6 +297,8 @@ class _RecommendScreenState extends State<RecommendScreen>
                               color: Colors.white,
                             ),
                             textAlign: TextAlign.center,
+                            maxLines: 2, // Allow up to two lines for the name
+                            overflow: TextOverflow.ellipsis, // Add ... if it overflows
                           ),
 
                           const SizedBox(height: 10),
@@ -303,7 +314,8 @@ class _RecommendScreenState extends State<RecommendScreen>
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                '${restaurant['rating']} (${restaurant['reviews']})',
+                                // Use the correct keys from your API data
+                                '${restaurant['rating'] ?? 'N/A'} (${restaurant['user_ratings_total'] ?? 0})',
                                 style: const TextStyle(
                                   fontSize: 14, // smaller
                                   color: Colors.white70,
@@ -315,42 +327,100 @@ class _RecommendScreenState extends State<RecommendScreen>
 
                           const SizedBox(height: 10),
 
-                          // Price range
-                          Text(
-                            restaurant['priceRange'],
-                            style: const TextStyle(
-                              fontSize: 16, // smaller
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          // Price range - Updated logic as per your request
+                          Builder(
+                            builder: (context) {
+                              String? priceRangeText;
+                              final dynamic priceLevelData = restaurant['price_level'];
+
+                              if (priceLevelData != null) {
+                                int? priceLevel;
+                                if (priceLevelData is int) {
+                                  priceLevel = priceLevelData;
+                                } else if (priceLevelData is String) {
+                                  if (priceLevelData.toLowerCase() == "n/a") {
+                                    priceRangeText = "N/A";
+                                  } else {
+                                    priceLevel = int.tryParse(priceLevelData);
+                                  }
+                                }
+
+                                if (priceLevel != null) {
+                                  switch (priceLevel) {
+                                    case 0:
+                                      priceRangeText = 'RM1-RM20';
+                                      break;
+                                    case 1:
+                                      priceRangeText = 'RM20-RM30';
+                                      break;
+                                    case 2:
+                                      priceRangeText = 'RM30-RM50';
+                                      break;
+                                    case 3:
+                                      priceRangeText = 'RM50-RM100';
+                                      break;
+                                    case 4:
+                                      priceRangeText = '>RM100';
+                                      break;
+                                  }
+                                }
+                              }
+
+                              // If no valid price text could be determined, show nothing.
+                              if (priceRangeText == null) {
+                                return const SizedBox.shrink();
+                              }
+
+                              return Text(
+                                'Price: $priceRangeText',
+                                style: const TextStyle(
+                                  fontSize: 16, // smaller
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              );
+                            },
                           ),
 
                           const SizedBox(height: 14),
 
-                          // Tags
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: restaurant['tags']
-                                .map<Widget>((tag) => Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.9),
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Text(
-                                        tag,
-                                        style: const TextStyle(
-                                          color: Colors.black54,
-                                          fontWeight: FontWeight.w500,
-                                          fontSize: 12, // smaller
-                                        ),
-                                      ),
-                                    ))
-                                .toList(),
+                          // categories - Constrained to a height of approx. 2 rows and scrollable.
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxHeight: 70, // Set a max height for about two rows of tags
+                            ),
+                            child: SingleChildScrollView(
+                              child: Center(
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  alignment: WrapAlignment.center,
+                                  // Use the correct key 'categories' and handle the case where it might be null.
+                                  children: (restaurant['categories'] as List<dynamic>? ?? [])
+                                      .map<Widget>((category) => Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 4,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white.withOpacity(0.9),
+                                              borderRadius: BorderRadius.circular(20),
+                                            ),
+                                            child: Text(
+                                              category,
+                                              style: const TextStyle(
+                                                color: Colors.black54,
+                                                fontWeight: FontWeight.w500,
+                                                fontSize: 12, // smaller
+                                              ),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ))
+                                      .toList(),
+                                ),
+                              ),
+                            ),
                           ),
 
                           const SizedBox(height: 24),
@@ -471,7 +541,7 @@ class _RecommendScreenState extends State<RecommendScreen>
             ),
           ),
         ),
-      ),
+      )
     );
   }
 }

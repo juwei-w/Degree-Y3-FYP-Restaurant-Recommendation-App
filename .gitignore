@@ -49,3 +49,4 @@ node_modules/
 venv/
 .env/
 functions/
+firebase_key.json

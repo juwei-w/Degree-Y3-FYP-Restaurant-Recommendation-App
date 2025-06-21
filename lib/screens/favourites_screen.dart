@@ -7,6 +7,7 @@ import 'home_screen.dart';
 import 'view_restaurant_screen.dart';
 import 'profile_screen.dart';
 import 'recommend_screen.dart';
+import '../services/restaurant_data_service.dart'; // Import the new service
 
 class FavouritesScreen extends StatefulWidget {
   const FavouritesScreen({super.key});
@@ -473,10 +474,17 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
     );
   }
 
-  void _navigateToRecommend(BuildContext context) {
+  void _navigateToRecommend(BuildContext context) async {
+    // Ensure the data is loaded before navigating.
+    await RestaurantDataService.instance.loadRestaurants();
+    
+    // Now, navigate to the RecommendScreen, passing the cached restaurant list.
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const RecommendScreen()),
+      MaterialPageRoute(
+        builder: (context) =>
+            RecommendScreen(restaurants: RestaurantDataService.instance.restaurants),
+      ),
     );
   }
 }
