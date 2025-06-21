@@ -1,0 +1,20 @@
+# Main Django Framework
+django
+
+# Environment Variables
+python-dotenv
+
+# Google & Firebase Services
+googlemaps
+firebase-admin
+
+# Data Handling & ML
+pandas
+numpy<2.0  # Pin numpy to a compatible version
+scikit-learn
+scikit-surprise
+tensorflow
+
+# String Matching
+fuzzywuzzy
+python-levenshtein
