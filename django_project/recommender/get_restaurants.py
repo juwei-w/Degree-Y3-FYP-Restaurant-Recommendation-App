@@ -133,40 +133,56 @@ def clean_text(text):
         text = re.sub(r'[^\x20-\x7E\n\r\t]', '', text) # Allow common whitespace
     return text
 
-def get_nearby_recommend_restaurants_logic(location_coords, user_radius=None, keyword=""):
-    # This is your core logic from the original script
-    radius = user_radius if user_radius else 5000
-    all_places = []
-    nearby_restaurants_filtered = []
+def get_nearby_recommend_restaurants_logic(latitude, longitude, radius, keyword=""):
+    """
+    Fetches nearby restaurants using Google Maps API and enriches the data.
+    Now accepts an optional keyword for searching.
+    """
+    all_restaurants = []
     
+    # Correctly format the location as a tuple for the Google Maps API call
+    location = (latitude, longitude)
+
     try:
-        response = gmaps.places_nearby(location=location_coords, radius=radius, keyword=keyword, type='restaurant')
-        all_places.extend(response.get('results', []))
+        # Prepare parameters for the API call
+        api_params = {
+            'location': location,
+            'radius': radius,
+            'type': 'restaurant'
+        }
+        # Only add the keyword to the search if it's provided and not empty
+        if keyword:
+            api_params['keyword'] = keyword
+
+        # Initial search for restaurants using the prepared parameters
+        places_result = gmaps.places_nearby(**api_params)
+        
+        results = places_result.get('results', [])
 
         # Google recommends a short delay before using next_page_token
         # It's better to handle this more robustly in a production app (e.g., with retries)
-        while response.get('next_page_token'):
+        while places_result.get('next_page_token'):
             import time
             time.sleep(2) 
-            response = gmaps.places_nearby(page_token=response['next_page_token'])
-            all_places.extend(response.get('results', []))
+            places_result = gmaps.places_nearby(page_token=places_result['next_page_token'])
+            results.extend(places_result.get('results', []))
     except Exception as e:
         print(f"Error during Google Maps API call (places_nearby): {e}", file=sys.stderr)
         # Depending on the error, you might want to return an empty list or raise it
         return []
 
 
-    print(f"Total places found by Google API: {len(all_places)} for keyword: '{keyword}'", file=sys.stderr)
+    print(f"Total places found by Google API: {len(results)} for keyword: '{keyword}'", file=sys.stderr)
     
-    for place in all_places:
+    for place in results:
         place_types = place.get('types', [])
         business_status = place.get('business_status', '').upper()
         # Ensure EXCLUDED_TYPES is accessible
         if not any(excluded_type in place_types for excluded_type in EXCLUDED_TYPES) and business_status == 'OPERATIONAL':
-            nearby_restaurants_filtered.append(place)
+            all_restaurants.append(place)
     
     restaurant_data = []
-    for place in nearby_restaurants_filtered:
+    for place in all_restaurants:
         name = place.get('name', 'N/A')
         place_id = place.get('place_id')
 
@@ -257,26 +273,26 @@ def get_nearby_recommend_restaurants_logic(location_coords, user_radius=None, ke
 @require_GET # Ensures this view only accepts GET requests
 def get_restaurants_api(request: HttpRequest):
     try:
-        lat_str = request.GET.get('latitude')
-        lon_str = request.GET.get('longitude')
+        # Correctly parse 'lat' and 'lon' to match the Flutter app's request
+        lat_str = request.GET.get('lat')
+        lon_str = request.GET.get('lon')
         radius_str = request.GET.get('radius')
         keyword_str = request.GET.get('keyword', "") # Optional
 
         if not all([lat_str, lon_str, radius_str]):
-            return JsonResponse({"error": "Missing required parameters: latitude, longitude, radius"}, status=400)
+            return JsonResponse({"error": "Missing required parameters: lat, lon, radius"}, status=400)
 
         lat = float(lat_str)
         lon = float(lon_str)
         radius = int(radius_str)
         
-        current_location = (lat, lon)
-        
         print(f"Django API: Received request for Lat: {lat}, Lon: {lon}, Radius: {radius}, Keyword: '{keyword_str}'", file=sys.stderr)
 
-        # Call your core logic function
+        # Call your core logic function with the correct parameters
         recommended_restaurants = get_nearby_recommend_restaurants_logic(
-            current_location, 
-            user_radius=radius, 
+            latitude=lat, 
+            longitude=lon,
+            radius=radius, 
             keyword=keyword_str
         )
 
