@@ -637,7 +637,25 @@ class _ViewRestaurantScreenState extends State<ViewRestaurantScreen> {
             // Navigation button
             _buildPngActionButton(
               assetPath: 'assets/images/view_navigate.png',
-              onTap: () => _launchURL('https://maps.google.com/?q=Taco+Bell+Cyberjaya'),
+              onTap: () {
+                final String? address = widget.restaurant['address'];
+                final String? name = widget.restaurant['name'];
+                final String? mapsUrl = widget.restaurant['maps_url'] ?? widget.restaurant['url'];
+                String urlString;
+
+                if (mapsUrl != null && mapsUrl.isNotEmpty) {
+                  urlString = mapsUrl;
+                } else if (address != null && address.isNotEmpty) {
+                  // Use the Google Maps driving directions format with double slash
+                  final destination = Uri.encodeComponent('${name ?? ''}, $address');
+                  urlString = 'https://www.google.com/maps/dir//$destination?travelmode=driving';
+                } else {
+                  // Fallback: open Google Maps
+                  urlString = 'https://maps.google.com/';
+                }
+
+                _launchURL(urlString);
+              },
             ),
           ],
         ),

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ReviewScreen extends StatefulWidget {
-  final String restaurantName;
+  final Map<String, dynamic> restaurant;
 
   const ReviewScreen({
     Key? key,
-    required this.restaurantName,
+    required this.restaurant,
   }) : super(key: key);
 
   @override
@@ -15,36 +16,14 @@ class ReviewScreen extends StatefulWidget {
 class _ReviewScreenState extends State<ReviewScreen> {
   final TextEditingController _reviewController = TextEditingController();
 
-  final List<Map<String, dynamic>> reviews = [
-    {
-      'name': 'Alyce Lambo',
-      'rating': 5.0,
-      'date': '25/06/2020',
-      'review': 'Really convenient and the points system helps benefit loyalty. Some mild glitches here and there, but nothing too egregious. Obviously needs to roll out to more remote.',
-      'avatar': 'assets/images/avatar1.png',
-    },
-    {
-      'name': 'Gonela Solom',
-      'rating': 4.5,
-      'date': '22/06/2020',
-      'review': 'Been a life saver for keeping our sanity during the pandemic, although they could improve some of their ui and how they handle specials as it often is unclear how to use them or everything is sold out so fast it feels a bit bait and switch. Still I\'d be stir crazy and losing track of days without so...',
-      'avatar': 'assets/images/avatar2.png',
-    },
-    {
-      'name': 'Brian C',
-      'rating': 2.0,
-      'date': '21/06/2020',
-      'review': 'Got an intro offer of 50% off first order that did not work..... I have scaled the app to find a contact us button but only a spend with us button available.',
-      'avatar': 'assets/images/avatar3.png',
-    },
-    {
-      'name': 'Helsmar E',
-      'rating': 3.0,
-      'date': '20/06/2020',
-      'review': 'The app is okay but could use some improvements in the user interface.',
-      'avatar': 'assets/images/avatar4.png',
-    },
-  ];
+  List<Map<String, dynamic>> get reviews {
+    // Extract reviews from the restaurant data, or return an empty list if not present
+    final dynamic data = widget.restaurant['reviews'];
+    if (data is List) {
+      return data.cast<Map<String, dynamic>>();
+    }
+    return [];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -146,9 +125,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: GestureDetector(
-              onTap: () {
-                _showWriteReviewDialog();
-              },
+              onTap: _launchGoogleMapsReview,
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Text(
@@ -182,8 +159,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
                 decoration: BoxDecoration(
                   color: Colors.blue[100],
                   borderRadius: BorderRadius.circular(25),
-                  image: DecorationImage(
-                    image: AssetImage(review['avatar']),
+                  image: const DecorationImage(
+                    image: AssetImage('assets/images/profile.png'),
                     fit: BoxFit.cover,
                   ),
                 ),
@@ -194,7 +171,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      review['name'],
+                      review['author'] ?? 'Anonymous',
                       style: const TextStyle(
                         fontFamily: 'SofiaSans',
                         fontSize: 16,
@@ -203,7 +180,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                       ),
                     ),
                     Text(
-                      review['date'],
+                      review['relative_time'] ?? '',
                       style: TextStyle(
                         fontFamily: 'SofiaSans',
                         fontSize: 14,
@@ -217,11 +194,19 @@ class _ReviewScreenState extends State<ReviewScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _getRatingColor(review['rating']),
+                  color: _getRatingColor(
+                    (review['rating'] is num)
+                        ? review['rating'].toDouble()
+                        : 0.0,
+                  ),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  '${review['rating']}',
+                  review['rating'] != null
+                      ? (review['rating'] is num
+                          ? review['rating'].toStringAsFixed(1)
+                          : '${review['rating']}.0')
+                      : '-',
                   style: const TextStyle(
                     fontFamily: 'SofiaSans',
                     fontSize: 12,
@@ -243,7 +228,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
           
           // Review text
           Text(
-            review['review'],
+            review['text'] ?? '',
             style: TextStyle(
               fontFamily: 'SofiaSans',
               fontSize: 14,
@@ -268,114 +253,39 @@ class _ReviewScreenState extends State<ReviewScreen> {
     }
   }
 
-  void _showWriteReviewDialog() {
-    double selectedRating = 5.0;
-    
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text(
-                'Write a Review',
-                style: TextStyle(
-                  fontFamily: 'SofiaSans',
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Rating:',
-                    style: TextStyle(
-                      fontFamily: 'SofiaSans',
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: List.generate(5, (index) {
-                      return GestureDetector(
-                        onTap: () {
-                          setDialogState(() {
-                            selectedRating = (index + 1).toDouble();
-                          });
-                        },
-                        child: Icon(
-                          Icons.star,
-                          color: index < selectedRating ? Colors.amber : Colors.grey[300],
-                          size: 30,
-                        ),
-                      );
-                    }),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _reviewController,
-                    maxLines: 5,
-                    decoration: const InputDecoration(
-                      hintText: 'Share your experience...',
-                      hintStyle: TextStyle(fontFamily: 'SofiaSans'),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(fontFamily: 'SofiaSans'),
-                  ),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    if (_reviewController.text.isNotEmpty) {
-                      // Add review logic here
-                      setState(() {
-                        reviews.insert(0, {
-                          'name': 'You',
-                          'rating': selectedRating,
-                          'date': _getCurrentDate(),
-                          'review': _reviewController.text,
-                          'avatar': 'assets/images/profile.png',
-                        });
-                      });
-                      
-                      Navigator.pop(context);
-                      _reviewController.clear();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Review submitted successfully!'),
-                          backgroundColor: Color(0xFFFF7F59),
-                        ),
-                      );
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF7F59),
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text(
-                    'Submit',
-                    style: TextStyle(fontFamily: 'SofiaSans'),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+  Future<void> _launchGoogleMapsReview() async {
+    final placeId = widget.restaurant['place_id'];
+    // If you have a direct Google Maps URL in your data, use it:
+    final String? mapsUrl = widget.restaurant['maps_url'] ?? widget.restaurant['url'];
+    String urlString;
+    if (mapsUrl != null && mapsUrl.isNotEmpty) {
+      urlString = mapsUrl;
+    } else if (placeId != null) {
+      urlString = 'https://www.google.com/maps/search/?api=1&query=Google&query_place_id=$placeId';
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Google Maps page not available.'),
+          backgroundColor: Colors.orangeAccent,
+        ),
+      );
+      return;
+    }
+    await _launchURL(urlString);
   }
 
-  String _getCurrentDate() {
-    final now = DateTime.now();
-    return '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
+  Future<void> _launchURL(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open Google Maps.'),
+          backgroundColor: Colors.orangeAccent,
+        ),
+      );
+    }
   }
 
   @override
