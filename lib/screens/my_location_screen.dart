@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:smart_food_v1/services/location_service.dart';
 import 'package:http/http.dart' as http; // Import the http package
 import 'dart:convert'; // Import for jsonDecode
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // To run this code
 // cd django_project
@@ -20,6 +21,7 @@ class _MyLocationScreenState extends State<MyLocationScreen> {
   Position? _currentPosition;
   String? _locationErrorMessage;
   bool _isLoadingLocation = false;
+  final String radius = dotenv.env['SEARCH_RADIUS'] ?? '5000'; // fallback to 10000 if not set
 
   // State variables for API interaction
   String? _apiErrorMessage;
@@ -80,7 +82,7 @@ class _MyLocationScreenState extends State<MyLocationScreen> {
     final Uri uri = Uri.parse(apiUrl).replace(queryParameters: {
       'latitude': position.latitude.toString(),
       'longitude': position.longitude.toString(),
-      'radius': '1000', // Or any other radius you prefer
+      'radius': radius, // Or any other radius you prefer
     });
 
     debugPrint("MyLocationScreen: Calling API: $uri");

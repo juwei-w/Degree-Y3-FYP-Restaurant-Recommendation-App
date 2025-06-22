@@ -66,7 +66,6 @@ def get_keyword_category(details, category_dict, search_keyword):
             extracted_categories.add(category)
     return list(extracted_categories)
 
-
 def get_fuzzy_category(input_term):
     # Ensure CATEGORY_DICT is accessible here
     best_match, score = process.extractOne(input_term, list(CATEGORY_DICT.keys()))
