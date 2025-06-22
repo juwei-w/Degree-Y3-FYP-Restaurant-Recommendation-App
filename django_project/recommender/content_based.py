@@ -51,7 +51,7 @@ def get_content_based_recommendations(user_profile, restaurants_data):
     if not restaurants_data:
         return []
 
-    # --- Use User Profile from arguments (Firestore lookup is no longer needed) ---
+    # --- Use User Profile from arguments ---
     user_preferences = set(user_profile.get("preferences", []))
     user_restrictions = set(user_profile.get("restrictions", []))
     print(f"  [CONTENT] User Preferences: {user_preferences}")  # <-- ADDED PRINT
@@ -94,36 +94,37 @@ def get_content_based_recommendations(user_profile, restaurants_data):
     for idx, rec in content_df.iterrows():
         rec_categories = set(rec['categories'])
 
-        # 1. Restriction Filter (Hard Filter)
-        # Assuming restrictions are categories to avoid
-        if user_restrictions.intersection(rec_categories):
-            continue  # Skip restaurants that match user's restrictions
+        # 1. Restriction Check (Requirement Logic)
+        # A restaurant MUST have ALL the categories listed in user_restrictions.
+        # If it doesn't meet the requirements, its score is 0.
+        if not user_restrictions.issubset(rec_categories):
+            final_score = 0.0
+        else:
+            # 2. Preference Score
+            # How many of the restaurant's categories match the user's preferences?
+            preference_score = 0
+            if user_preferences:
+                preference_score = len(user_preferences.intersection(rec_categories)) / len(user_preferences)
 
-        # 2. Preference Score
-        # How many of the restaurant's categories match the user's preferences?
-        preference_score = 0
-        if user_preferences:
-            preference_score = len(user_preferences.intersection(rec_categories)) / len(user_preferences)
+            # 3. Rating Score (Normalized 0-1)
+            rating_score = rec.get('rating', 0) / 5.0
 
-        # 3. Rating Score (Normalized 0-1)
-        rating_score = rec.get('rating', 0) / 5.0
+            # 4. TF-IDF Score (Similarity to favorites)
+            tfidf_score = tfidf_scores[idx]
 
-        # 4. TF-IDF Score (Similarity to favorites)
-        tfidf_score = tfidf_scores[idx]
+            # 5. Final Weighted Score
+            # Weights are now dynamic. If tfidf_score is 0, its weight is given to preference_score.
+            has_tfidf_score = tfidf_score > 0
+            
+            w_tfidf = 0.4 if has_tfidf_score else 0.0
+            w_preference = 0.4 if has_tfidf_score else 0.8 # Becomes more important if no favorites are nearby
+            w_rating = 0.2
 
-        # 5. Final Weighted Score
-        # Weights are now dynamic. If tfidf_score is 0, its weight is given to preference_score.
-        has_tfidf_score = tfidf_score > 0
-        
-        w_tfidf = 0.4 if has_tfidf_score else 0.0
-        w_preference = 0.4 if has_tfidf_score else 0.8 # Becomes more important if no favorites are nearby
-        w_rating = 0.2
-
-        final_score = (
-            (w_tfidf * tfidf_score) +
-            (w_preference * preference_score) +
-            (w_rating * rating_score)
-        )
+            final_score = (
+                (w_tfidf * tfidf_score) +
+                (w_preference * preference_score) +
+                (w_rating * rating_score)
+            )
 
         rec_data = rec.to_dict()
         rec_data['score'] = final_score
