@@ -106,4 +106,8 @@ def get_hybrid_recommendations(user_profile, restaurants_data):
     })
 
     print(f"--- [HYBRID] END: Finished generating recommendations for user {user_id} ---\n")
-    return final_recommendations
+    
+    # Return only the top 20 recommendations
+    top_recommendations = final_recommendations[:20]
+    print(f"[HYBRID] Returning top {len(top_recommendations)} recommendations to the client.")
+    return top_recommendations
