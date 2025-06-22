@@ -179,6 +179,36 @@ class _RecommendScreenState extends State<RecommendScreen>
     }
   }
 
+  /// Sends feedback about a user's action on a restaurant to the backend.
+  Future<void> _sendFeedback(Map<String, dynamic> restaurant, String action) async {
+    final String? apiUrl = dotenv.env['API_BASE_URL'];
+    if (apiUrl == null) {
+      debugPrint('[FEEDBACK ERROR] API_BASE_URL not found in .env file.');
+      return;
+    }
+
+    final url = Uri.parse('$apiUrl/recommender/record_feedback/');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'user_id': widget.user.uid,
+          'restaurant_data': restaurant,
+          'action': action,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        debugPrint('Feedback ($action) sent successfully for ${restaurant['name']}');
+      } else {
+        debugPrint('Failed to send feedback. Status: ${response.statusCode}, Body: ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('Error sending feedback: $e');
+    }
+  }
+
   @override
   void dispose() {
     _likeAnimationController.dispose();
@@ -190,40 +220,57 @@ class _RecommendScreenState extends State<RecommendScreen>
   void _toggleLike() {
     final restaurant = _recommendedRestaurants[currentIndex];
     final restaurantId = restaurant['place_id'] as String;
+    bool wasLiked = _interactionStates[restaurantId] == 'liked';
 
     setState(() {
       // If it was already liked, toggle it off. Otherwise, set it to liked.
-      if (_interactionStates[restaurantId] == 'liked') {
+      if (wasLiked) {
         _interactionStates.remove(restaurantId);
         isLiked = false;
       } else {
         _interactionStates[restaurantId] = 'liked';
         isLiked = true;
         isDisliked = false; // A restaurant can't be liked and disliked
+        // --- SEND FEEDBACK: LIKE ---
+        _sendFeedback(restaurant, 'like');
       }
     });
     _likeAnimationController.forward().then((_) {
       _likeAnimationController.reverse();
+      // If the card was newly liked, animate to the next one.
+      if (!wasLiked && isLiked && currentIndex < _recommendedRestaurants.length - 1) {
+        // Pass a flag to prevent sending a 'skip' feedback as well.
+        _animateSwipe(isSwipeUp: true, sendFeedback: false);
+      }
     });
   }
 
   void _toggleDislike() {
     final restaurant = _recommendedRestaurants[currentIndex];
     final restaurantId = restaurant['place_id'] as String;
+    bool wasDisliked = _interactionStates[restaurantId] == 'disliked';
 
     setState(() {
       // If it was already disliked, toggle it off. Otherwise, set it to disliked.
-      if (_interactionStates[restaurantId] == 'disliked') {
+      if (wasDisliked) {
         _interactionStates.remove(restaurantId);
         isDisliked = false;
       } else {
         _interactionStates[restaurantId] = 'disliked';
         isDisliked = true;
         isLiked = false; // A restaurant can't be liked and disliked
+        // --- SEND FEEDBACK: DISLIKE ---
+        _sendFeedback(restaurant, 'dislike');
       }
     });
+
     _dislikeAnimationController.forward().then((_) {
       _dislikeAnimationController.reverse();
+      // If the card was newly disliked, animate to the next one.
+      if (!wasDisliked && isDisliked && currentIndex < _recommendedRestaurants.length - 1) {
+        // Pass a flag to prevent sending a 'skip' feedback as well.
+        _animateSwipe(isSwipeUp: true, sendFeedback: false);
+      }
     });
   }
 
@@ -246,7 +293,21 @@ class _RecommendScreenState extends State<RecommendScreen>
   }
 
   /// Animates the card off-screen and loads the next/previous card.
-  void _animateSwipe({required bool isSwipeUp}) {
+  void _animateSwipe({required bool isSwipeUp, bool sendFeedback = true}) {
+    final restaurant = _recommendedRestaurants[currentIndex];
+    final restaurantId = restaurant['place_id'] as String;
+
+    // --- SEND FEEDBACK: SKIP ---
+    // Send feedback for a 'skip' action only if it was a direct swipe up
+    // AND the user hasn't already interacted with this card.
+    if (isSwipeUp && sendFeedback && !_interactionStates.containsKey(restaurantId)) {
+      _sendFeedback(restaurant, 'skip');
+      // --- Record the skip interaction to prevent future duplicate feedback ---
+      setState(() {
+        _interactionStates[restaurantId] = 'skipped';
+      });
+    }
+
     final screenHeight = MediaQuery.of(context).size.height;
     final endOffset = Offset(0, isSwipeUp ? -screenHeight : screenHeight);
 
@@ -627,6 +688,17 @@ class _RecommendScreenState extends State<RecommendScreen>
                             margin: const EdgeInsets.symmetric(horizontal: 20),
                             child: ElevatedButton(
                               onPressed: () {
+                                final restaurant = _recommendedRestaurants[currentIndex];
+                                final restaurantId = restaurant['place_id'] as String;
+
+                                // --- SEND FEEDBACK: CLICK_DETAILS ---
+                                _sendFeedback(restaurant, 'click_details');
+
+                                // --- Record the interaction to prevent a later 'skip' ---
+                                setState(() {
+                                  _interactionStates[restaurantId] = 'viewed';
+                                });
+
                                 // Determine if the current restaurant is a favorite.
                                 final List<dynamic> favorites = _userProfile?['favorites'] as List<dynamic>? ?? [];
                                 final bool isFavourite = favorites.contains(restaurant['place_id']);
