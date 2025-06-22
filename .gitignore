@@ -50,3 +50,4 @@ venv/
 .env
 functions/
 firebase_key.json
+django_project/assets/

@@ -200,9 +200,10 @@ class _RecommendScreenState extends State<RecommendScreen>
     });
     _dislikeAnimationController.forward().then((_) {
       _dislikeAnimationController.reverse();
-      // Only proceed to next restaurant if it was newly disliked
-      if (isDisliked && !wasDisliked) {
-        // Trigger the swipe up animation instead of calling the old method.
+      // Only proceed to next restaurant if it was newly disliked and not the last card.
+      if (isDisliked &&
+          !wasDisliked &&
+          currentIndex < _recommendedRestaurants.length - 1) {
         _animateSwipe(isSwipeUp: true);
       }
     });
@@ -332,13 +333,25 @@ class _RecommendScreenState extends State<RecommendScreen>
         },
         onVerticalDragEnd: (details) {
           final screenHeight = MediaQuery.of(context).size.height;
+          final isFirstCard = currentIndex == 0;
+          final isLastCard = currentIndex == _recommendedRestaurants.length - 1;
+
           // Decide whether to swipe away or snap back based on velocity and position.
-          if (details.primaryVelocity! < -500 || _dragOffset.dy < -screenHeight / 4) {
-            _animateSwipe(isSwipeUp: true); // Swipe up
-          } else if (details.primaryVelocity! > 500 || _dragOffset.dy > screenHeight / 4) {
-            _animateSwipe(isSwipeUp: false); // Swipe down
-          } else {
-            _animateSnapBack(); // Return to center
+          // Swipe Up (Next card), but not if it's the last card.
+          if ((details.primaryVelocity! < -500 ||
+                  _dragOffset.dy < -screenHeight / 4) &&
+              !isLastCard) {
+            _animateSwipe(isSwipeUp: true);
+          }
+          // Swipe Down (Previous card), but not if it's the first card.
+          else if ((details.primaryVelocity! > 500 ||
+                  _dragOffset.dy > screenHeight / 4) &&
+              !isFirstCard) {
+            _animateSwipe(isSwipeUp: false);
+          }
+          // Otherwise, snap back to the center.
+          else {
+            _animateSnapBack();
           }
         },
         child: Container(
@@ -348,7 +361,7 @@ class _RecommendScreenState extends State<RecommendScreen>
               end: Alignment.bottomCenter,
               colors: [
                 Color(0xFFFF6B47),
-                Color(0xFFFF947A),
+                Color(0xFFFFB5A3),
               ],
             ),
           ),
@@ -402,38 +415,39 @@ class _RecommendScreenState extends State<RecommendScreen>
                             ),
                           // --- END OF TEMPORARY CODE ---
 
-
                           // Restaurant image
-                          Container(
-                            height: 280, // slightly smaller
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(20),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.2),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 10),
-                                ),
-                              ],
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(20),
-                              child: photoUrl != null
-                                  ? Image.network(
-                                      photoUrl,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        // Use the asset image as a fallback on error.
-                                        return Image.asset('assets/images/tacos.png', fit: BoxFit.cover);
-                                      },
-                                    )
-                                  // Use the asset image as a fallback if no URL exists.
-                                  : Image.asset('assets/images/tacos.png', fit: BoxFit.cover),
+                          Flexible(
+                            child: Container(
+                              height: 270,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(20),
+                                child: photoUrl != null
+                                    ? Image.network(
+                                        photoUrl,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) {
+                                          // Use the asset image as a fallback on error.
+                                          return Image.asset('assets/images/tacos.png', fit: BoxFit.cover);
+                                        },
+                                      )
+                                    // Use the asset image as a fallback if no URL exists.
+                                    : Image.asset('assets/images/tacos.png', fit: BoxFit.cover),
+                              ),
                             ),
                           ),
 
-                          const SizedBox(height: 32),
+                          const SizedBox(height: 12), // COMPRESSED: Reduced spacing
 
                           // Restaurant name
                           Text(
