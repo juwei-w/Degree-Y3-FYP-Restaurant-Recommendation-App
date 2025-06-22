@@ -1,5 +1,7 @@
 from .content_based import get_content_based_recommendations
 from .collaborative import get_collaborative_filtering_recommendations
+from .reinforcement_learning import DQNAgent, extract_rl_features # Import RL components
+from .constants import CATEGORY_KEYS # Import from constants
 import json
 import os
 
@@ -95,6 +97,39 @@ def get_hybrid_recommendations(user_profile, restaurants_data):
     final_recommendations = _combine_and_rank_recommendations(content_recs, collab_recs, weights)
     print(f"[HYBRID] Combination complete. Total recommendations: {len(final_recommendations)}")
 
+    # Return only the top 20 recommendations from the hybrid model
+    top_hybrid_recs = final_recommendations[:len(final_recommendations)]  # Adjust this if you want a specific number, e.g., 20
+    # top_hybrid_recs = final_recommendations[:20]
+
+    # --- 4. RL Re-ranking ---
+    print(f"[HYBRID] Re-ranking using RL agent for user {user_id}...")
+    
+    # Instantiate a specific agent for this user
+    rl_agent = DQNAgent(state_size=35, action_size=4, user_id=user_id)
+
+    reranked_recs = []
+    for rec in top_hybrid_recs:
+        # Create the state vector for the RL agent.
+        state = extract_rl_features(rec, CATEGORY_KEYS)
+        
+        # Get Q-values (predicted scores for each action) from the RL model.
+        q_values = rl_agent.get_q_values(state)
+        
+        # Use the Q-value for the 'like' action (index 0) as the RL score.
+        # This score represents the agent's belief that the user will like this item.
+        rl_score = q_values[0]
+        
+        # Add a new score that combines the hybrid score and the RL agent's score.
+        # The weight (e.g., 0.3) controls how much influence the RL agent has.
+        rec['final_score_with_rl'] = rec.get('final_score', 0.0) + (rl_score * 0.3)
+        reranked_recs.append(rec)
+
+    # Sort the list by the new final score that includes the RL agent's input.
+    final_reranked_list = sorted(reranked_recs, key=lambda x: x['final_score_with_rl'], reverse=True)
+
+    # Log the re-ranking process
+    print(f"[HYBRID] RL re-ranking complete. Total recommendations after re-ranking: {len(final_reranked_list)}")
+
     # --- Save log for debugging ---
     _save_hybrid_log({
         "user_id": user_id,
@@ -102,12 +137,11 @@ def get_hybrid_recommendations(user_profile, restaurants_data):
         "weights": weights,
         "content_recs_with_scores": content_recs,
         "collab_recs_with_scores": collab_recs,
-        "final_hybrid_recommendations": final_recommendations
+        "final_hybrid_recommendations": final_recommendations,
+        "rl_reranked_recommendations": final_reranked_list
     })
 
     print(f"--- [HYBRID] END: Finished generating recommendations for user {user_id} ---\n")
     
-    # Return only the top 20 recommendations
-    top_recommendations = final_recommendations[:20]
-    print(f"[HYBRID] Returning top {len(top_recommendations)} recommendations to the client.")
-    return top_recommendations
+    # Return the re-ranked recommendations
+    return final_reranked_list

@@ -9,6 +9,7 @@ import os
 
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.http import require_GET
+from .constants import CATEGORY_DICT, EXCLUDED_TYPES # Import from constants
 
 load_dotenv()  # take environment variables from .env.
 
@@ -19,26 +20,6 @@ load_dotenv()  # take environment variables from .env.
 # Google Maps API Key - IMPORTANT: Manage this securely, e.g., environment variable or Django settings
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
 gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
-
-EXCLUDED_TYPES = ['gas_station', 'lodging', 'convenience_store', 'car_repair', 'car_wash', 'parking']
-CATEGORY_DICT = {
-    "halal": ["halal", "muslim-friendly", "muslim", "halal-certified", "shariah-compliant"],
-    "vegetarian": ["vege", "vegetarian", "vegan", "vegetarian-friendly", "vegetarian option", "meat-free"],
-    "vegan": ["vegan", "plant-based", "vegan-friendly", "cruelty-free", "dairy-free"],
-    "beef-free": ["beef-free", "no beef", "without beef", "beefless"],
-    "chinese": ["chinese", "szechuan", "dim sum", "cantonese", "dumplings", "fried rice", "chicken rice", "charsiew", "horfun", "kopitiam", "mala"],
-    "malay": ["nasi lemak", "satay", "rendang", "keropok", "nasi kerabu", "roti jala"],
-    "indian": ["indian restaurant", "khorma", "masala", "naan", "briyani", "tandoori", "nasi kandar"],
-    "korean": ["korean", "kimchi", "bibimbap", "bulgogi", "tteokbokki", "jajangmyeon", "samgyeopsal"],
-    "japanese": ["japan", "japanese", "sushi", "wasabi", "udon", "miso", "shabu-shabu", "bento", "sukiya", "takoyaki", "onigiri"],
-    "thai": ["thai", "pad thai", "green curry", "tom yum", "som tam", "satay", "red curry"],
-    "western": ["western", "steak", "burger", "pasta", "pizza", "fish n' chips"],
-    "eastern": ["eastern cuisine", "middle eastern", "falafel", "shawarma", "hummus", "kebab"],
-    "cafe": ["café", "coffee shop", "espresso", "latte", "pastry", "bakery", "barista"],
-    "bar": ["bar", "pub", "tavern", "brewery", "cocktail"],
-    "buffet": ["buffet", "all-you-can-eat", "unlimited food", "buffet-style"],
-    "fast-food": ["fast food", "drive-thru", "mcdonald's", "kfc", "burger king", "a&w", "taco bell", "subway", "pizza hut", "domino's", "texas chicken"],
-}
 
 def save_to_json(data, base_filename="map_output", folder_name="../assets/restaurant_data"):
     if not os.path.exists(folder_name):

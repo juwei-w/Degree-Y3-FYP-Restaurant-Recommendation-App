@@ -386,6 +386,34 @@ class _RecommendScreenState extends State<RecommendScreen>
                           ),
                         ),
                       ),
+
+                      const Spacer(), // Pushes the score to the other side
+
+                      // --- TEMPORARY CODE FOR TESTING ---
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          if (restaurant.containsKey('final_score'))
+                            Text(
+                              'Hybrid: ${restaurant['final_score'].toStringAsFixed(4)}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          if (restaurant.containsKey('final_score_with_rl'))
+                            Text(
+                              'RL: ${restaurant['final_score_with_rl'].toStringAsFixed(4)}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                        ],
+                      ),
+                      // --- END OF TEMPORARY CODE ---
                     ],
                   ),
                 ),
@@ -396,23 +424,12 @@ class _RecommendScreenState extends State<RecommendScreen>
                   child: Transform.translate(
                     offset: _dragOffset,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24.0, 8.0, 24.0, 24.0),
+                      padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 24.0),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.start,
                         children: [
                           // --- TEMPORARY CODE FOR TESTING ---
-                          // This will display the recommendation score on the card.
-                          // Remove this before finalizing the UI.
-                          if (restaurant.containsKey('final_score'))
-                            Text(
-                              'Hybrid Score: ${restaurant['final_score'].toStringAsFixed(4)}',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Colors.white,
-                                fontStyle: FontStyle.italic,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
+                          // This code has been moved to the header row above.
                           // --- END OF TEMPORARY CODE ---
 
                           // Restaurant image
