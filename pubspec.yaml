@@ -46,6 +46,7 @@ dependencies:
   logger: ^2.0.1 # Or the latest version
   cloud_functions: 5.1.0 # Add Cloud Functions
   flutter_dotenv: ^5.0.2 # Add flutter_dotenv for environment variables
+  google_maps_flutter: ^2.5.0 # Add Google Maps Flutter dependency
 
 dev_dependencies:
   flutter_test:

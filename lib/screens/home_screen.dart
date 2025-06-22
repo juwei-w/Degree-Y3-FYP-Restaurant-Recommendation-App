@@ -3,6 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../services/location_service.dart';
 import '../services/restaurant_data_service.dart'; // Import the new service
 import 'feedback_screen.dart';
@@ -44,9 +45,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _dragController.addListener(() {
-      setState(() {
-        _dragPosition = _dragController.size;
-      });
+      if (_dragPosition != _dragController.size) {
+        setState(() {
+          _dragPosition = _dragController.size;
+        });
+      }
     });
     _initializeData();
   }
@@ -646,12 +649,30 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildMapImage() {
+    // Default to Cyberjaya if no address is selected
+    final double lat = _selectedAddress?['latitude'] ?? 2.9222396;
+    final double lng = _selectedAddress?['longitude'] ?? 101.636466;
+
     return SizedBox(
       width: double.infinity,
       height: double.infinity,
-      child: Image.asset(
-        'assets/images/map.png',
-        fit: BoxFit.cover,
+      child: GoogleMap(
+        initialCameraPosition: CameraPosition(
+          target: LatLng(lat, lng),
+          zoom: 14,
+        ),
+        myLocationEnabled: true,
+        myLocationButtonEnabled: true,
+        zoomControlsEnabled: false,
+        mapType: MapType.normal,
+        markers: restaurants
+            .where((r) => r['latitude'] != null && r['longitude'] != null)
+            .map((r) => Marker(
+                  markerId: MarkerId(r['place_id'] ?? r['name'] ?? ''),
+                  position: LatLng(r['latitude'], r['longitude']),
+                  infoWindow: InfoWindow(title: r['name']), // Shows name on tap
+                ))
+            .toSet(),
       ),
     );
   }
