@@ -1561,11 +1561,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _navigateToFavourite(BuildContext context) {
-    Navigator.push(
+  void _navigateToFavourite(BuildContext context) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const FavouritesScreen()),
     );
+    // Refresh user data when returning from the favourites screen
+    _fetchUserInfo();
   }
 
   void _navigateToWelcome(BuildContext context) {
@@ -1576,11 +1578,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _navigateToProfile(BuildContext context) {
-    Navigator.push(
+  void _navigateToProfile(BuildContext context) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const ProfileScreen()),
     );
+    // Refresh user data when returning from the profile screen
+    _fetchUserInfo();
   }
 
   void _navigateToRecommend(BuildContext context) {
@@ -1605,17 +1609,22 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _navigateToViewRestaurant(BuildContext context, Map<String, dynamic> restaurant) {
-    Navigator.push(
+  void _navigateToViewRestaurant(
+      BuildContext context, Map<String, dynamic> restaurant) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ViewRestaurantScreen(
           restaurant: restaurant,
           isFavourite: userFavourites.any(
-            (fav) => fav['place_id'] == (restaurant['place_id'] ?? restaurant['name'] ?? ''),
+            (fav) =>
+                fav['place_id'] ==
+                (restaurant['place_id'] ?? restaurant['name'] ?? ''),
           ),
         ),
       ),
     );
+    // Refresh user data when returning from the view restaurant screen
+    _fetchUserInfo();
   }
 }
