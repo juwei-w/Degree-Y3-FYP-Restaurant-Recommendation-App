@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'view_restaurant_screen.dart';
 
 class RecommendScreen extends StatefulWidget {
   // Add a field to hold the list of restaurants passed from another screen.
@@ -38,6 +39,10 @@ class _RecommendScreenState extends State<RecommendScreen>
   String? _error;
 
   int currentIndex = 0;
+  // --- NEW: Map to store the interaction state for each restaurant ---
+  final Map<String, String> _interactionStates = {}; // e.g., {'place_id': 'liked'}
+  // --- NEW: State variable to hold the user's profile ---
+  Map<String, dynamic>? _userProfile;
 
   @override
   void initState() {
@@ -116,6 +121,8 @@ class _RecommendScreenState extends State<RecommendScreen>
         throw Exception("User profile not found in Firestore for UID: ${user.uid}");
       }
       final userProfileData = userQuery.docs.first.data();
+      // --- Store the user profile to use later ---
+      _userProfile = userProfileData;
       
       // --- 1.5 Convert Firestore Timestamps before encoding ---
       final encodableUserProfile = _convertTimestamps(userProfileData);
@@ -149,6 +156,8 @@ class _RecommendScreenState extends State<RecommendScreen>
           setState(() {
             _recommendedRestaurants = jsonData
                 .map((item) => item as Map<String, dynamic>)
+                // Filter out any restaurants that are missing a valid place_id
+                .where((r) => r['place_id'] != null && r['place_id'] is String)
                 .toList();
             _isLoading = false;
           });
@@ -179,10 +188,18 @@ class _RecommendScreenState extends State<RecommendScreen>
   }
 
   void _toggleLike() {
+    final restaurant = _recommendedRestaurants[currentIndex];
+    final restaurantId = restaurant['place_id'] as String;
+
     setState(() {
-      isLiked = !isLiked;
-      if (isLiked) {
-        isDisliked = false; // If liked, un-dislike
+      // If it was already liked, toggle it off. Otherwise, set it to liked.
+      if (_interactionStates[restaurantId] == 'liked') {
+        _interactionStates.remove(restaurantId);
+        isLiked = false;
+      } else {
+        _interactionStates[restaurantId] = 'liked';
+        isLiked = true;
+        isDisliked = false; // A restaurant can't be liked and disliked
       }
     });
     _likeAnimationController.forward().then((_) {
@@ -190,22 +207,23 @@ class _RecommendScreenState extends State<RecommendScreen>
     });
   }
 
-  void _handleDislike() {
-    bool wasDisliked = isDisliked; // Store previous state
+  void _toggleDislike() {
+    final restaurant = _recommendedRestaurants[currentIndex];
+    final restaurantId = restaurant['place_id'] as String;
+
     setState(() {
-      isDisliked = !isDisliked;
-      if (isDisliked) {
-        isLiked = false; // If disliked, un-like
+      // If it was already disliked, toggle it off. Otherwise, set it to disliked.
+      if (_interactionStates[restaurantId] == 'disliked') {
+        _interactionStates.remove(restaurantId);
+        isDisliked = false;
+      } else {
+        _interactionStates[restaurantId] = 'disliked';
+        isDisliked = true;
+        isLiked = false; // A restaurant can't be liked and disliked
       }
     });
     _dislikeAnimationController.forward().then((_) {
       _dislikeAnimationController.reverse();
-      // Only proceed to next restaurant if it was newly disliked and not the last card.
-      if (isDisliked &&
-          !wasDisliked &&
-          currentIndex < _recommendedRestaurants.length - 1) {
-        _animateSwipe(isSwipeUp: true);
-      }
     });
   }
 
@@ -254,10 +272,13 @@ class _RecommendScreenState extends State<RecommendScreen>
             currentIndex--;
           }
         }
-        // Reset state for the new card
+        // --- UPDATE STATE FOR NEW CARD ---
+        // Get the interaction state for the new card and update the UI buttons.
+        final newRestaurantId = _recommendedRestaurants[currentIndex]['place_id'] as String;
+        final previousState = _interactionStates[newRestaurantId] ?? 'none';
+        isLiked = previousState == 'liked';
+        isDisliked = previousState == 'disliked';
         _dragOffset = Offset.zero;
-        isLiked = false;
-        isDisliked = false;
       });
     });
   }
@@ -428,10 +449,6 @@ class _RecommendScreenState extends State<RecommendScreen>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.start,
                         children: [
-                          // --- TEMPORARY CODE FOR TESTING ---
-                          // This code has been moved to the header row above.
-                          // --- END OF TEMPORARY CODE ---
-
                           // Restaurant image
                           Flexible(
                             child: Container(
@@ -610,11 +627,18 @@ class _RecommendScreenState extends State<RecommendScreen>
                             margin: const EdgeInsets.symmetric(horizontal: 20),
                             child: ElevatedButton(
                               onPressed: () {
-                                // Navigate to restaurant details
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Opening ${restaurant['name']}'),
-                                    backgroundColor: Colors.green,
+                                // Determine if the current restaurant is a favorite.
+                                final List<dynamic> favorites = _userProfile?['favorites'] as List<dynamic>? ?? [];
+                                final bool isFavourite = favorites.contains(restaurant['place_id']);
+
+                                // Navigate to the restaurant details screen with the required data.
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ViewRestaurantScreen(
+                                      restaurant: restaurant,
+                                      isFavourite: isFavourite,
+                                    ),
                                   ),
                                 );
                               },
@@ -661,7 +685,7 @@ class _RecommendScreenState extends State<RecommendScreen>
                                     ],
                                   ),
                                   child: IconButton(
-                                    onPressed: _handleDislike,
+                                    onPressed: _toggleDislike,
                                     icon: Icon(
                                       isDisliked // Change icon based on state
                                           ? Icons.thumb_down // Filled icon
