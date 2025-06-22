@@ -92,25 +92,26 @@ def record_feedback(request):
         if action not in action_map:
             return JsonResponse({'status': 'error', 'message': 'Invalid action.'}, status=400)
 
-        # 1. Instantiate the agent for the specific user
+        # 1. Instantiate the agent (which loads the existing model)
         agent = DQNAgent(state_size=35, action_size=4, user_id=user_id)
 
-        # 2. Create the 'state' from the provided restaurant data
+        # 2. Create the 'state' and 'reward' from the feedback
         state = extract_rl_features(restaurant_data, CATEGORY_KEYS)
-        
-        # 3. Remember the experience (state, action, reward)
         action_index = action_map[action]
         reward = reward_map[action]
-        # For this interaction model, we can treat each action as a terminal state.
+        
+        # 3. Remember the experience
         agent.remember(state, action_index, reward, state, done=True)
         print(f"  [RL FEEDBACK] Stored experience in memory.")
 
         # 4. Replay/train the model with a batch of experiences
-        agent.replay(batch_size=32)
-        print("  [RL FEEDBACK] Replay/training step completed.")
+        batch_size = 32
+        if len(agent.memory) > batch_size:
+            agent.replay(batch_size)
+            print(f"  [RL FEEDBACK] Replayed experience and trained model.")
 
         # 5. Save the updated model back to Firestore
-        agent.save_model()
+        agent.save_model_to_firestore()
 
         return JsonResponse({'status': 'success', 'message': 'Feedback recorded and model updated.'})
 
