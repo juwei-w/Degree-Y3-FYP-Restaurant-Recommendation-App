@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,6 +13,7 @@ import 'profile_screen.dart';
 import 'welcome_screen.dart';
 import 'recommend_screen.dart';
 import 'view_restaurant_screen.dart';
+import '../widgets/loading_dialog.dart';
 
 final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
 
@@ -35,15 +37,19 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _showAddressDropdown = false;
   List<Map<String, dynamic>> _addresses = []; // Changed to List of Maps
   Map<String, dynamic>? _selectedAddress; // Changed to a Map object
+  Map<String, dynamic>? _lastLoadedAddress;
 
   final LocationService _locationService = LocationService();
 
   // Fetch user's favourites from Firestore (e.g., in initState or with a FutureBuilder)
   List<dynamic> userFavourites = []; // This will be a list of restaurant objects
 
+  GoogleMapController? _mapController;
+
   @override
   void initState() {
     super.initState();
+    debugPrint('HomeScreen initState called');
     _dragController.addListener(() {
       if (_dragPosition != _dragController.size) {
         setState(() {
@@ -68,6 +74,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _getCurrentUserLocation() async {
+    debugPrint('Attempting to get current location...');
+    log('Attempting to get current location...');
     try {
       final position = await _locationService.getCurrentLocation();
       final address = await _locationService.getAddressFromLatLng(position);
@@ -78,11 +86,16 @@ class _HomeScreenState extends State<HomeScreen> {
             'address': address,
             'latitude': position.latitude,
             'longitude': position.longitude,
-            'isSelected': true, // Flag for UI state
+            'isSelected': true,
           };
         });
+        debugPrint('Got current location: $position');
+        log('Got current location: $position');
+        _moveMapToSelectedAddress();
       }
     } catch (e) {
+      debugPrint('Failed to get current location: $e');
+      log('Failed to get current location: $e', name: 'HomeScreen');
       if (mounted) {
         setState(() {
           _selectedAddress = {
@@ -90,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
             'address': 'Please check permissions and try again.',
             'latitude': 0.0,
             'longitude': 0.0,
-            'isSelected': true, // Flag for UI state
+            'isSelected': true,
           };
         });
       }
@@ -147,43 +160,73 @@ class _HomeScreenState extends State<HomeScreen> {
                 null; // Explicitly null if none is selected in DB
           }
         });
+
+        // Only fetch restaurants if address changed
+        if (_selectedAddress != null &&
+            (_lastLoadedAddress == null ||
+             _selectedAddress!['latitude'] != _lastLoadedAddress!['latitude'] ||
+             _selectedAddress!['longitude'] != _lastLoadedAddress!['longitude'])) {
+          await _loadRestaurantData();
+        }
       }
     }
   }
 
   Future<void> _loadRestaurantData() async {
-    // Use the shared service to load data.
-    await RestaurantDataService.instance.loadRestaurants();
-    if (mounted) {
-      setState(() {
-        // Get the loaded data from the service.
-        restaurants = RestaurantDataService.instance.restaurants;
-      });
+    if (_selectedAddress == null) return;
+
+    // Prevent refetch if address hasn't changed
+    if (_lastLoadedAddress != null &&
+        _selectedAddress!['latitude'] == _lastLoadedAddress!['latitude'] &&
+        _selectedAddress!['longitude'] == _lastLoadedAddress!['longitude']) {
+      log('Address unchanged, skipping restaurant fetch.');
+      return;
+    }
+
+    showLoadingDialog(context, message: "Fetching restaurants...");
+    try {
+      log('Attempting to load restaurants with coordinates: ${_selectedAddress!['latitude']}, ${_selectedAddress!['longitude']}');
+      await RestaurantDataService.instance.loadRestaurants(
+        latitude: _selectedAddress!['latitude'],
+        longitude: _selectedAddress!['longitude'],
+      );
+      if (mounted) {
+        setState(() {
+          restaurants = RestaurantDataService.instance.getRestaurants();
+          _lastLoadedAddress = Map<String, dynamic>.from(_selectedAddress!);
+        });
+      }
+    } finally {
+      hideLoadingDialog(context);
     }
   }
 
   /// Central method to update the address selection state in Firestore.
-  Future<void> _updateAddressSelectionInDb(
-      {Map<String, dynamic>? newSelectedAddress}) async {
+  Future<void> _updateAddressSelectionInDb({
+    Map<String, dynamic>? newSelectedAddress,
+    bool skipLoadRestaurants = false,
+  }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final userDocRef =
-        FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
 
-    // Create the new list with updated 'isSelected' flags
+    // Update addresses
     final updatedAddresses = _addresses.map((addr) {
-      // Check for equality based on a unique field like the address string
       final isSelected = (newSelectedAddress != null) &&
           (addr['address'] == newSelectedAddress['address']);
       return {...addr, 'isSelected': isSelected};
     }).toList();
 
-    // Update Firestore with the new list
     await userDocRef.update({'address': updatedAddresses});
-
-    // Refresh local state from the new source of truth
     await _fetchUserInfo();
+
+    // Only load restaurants if not skipping (i.e., not for current location)
+    if (!skipLoadRestaurants) {
+      await _loadRestaurantData();
+    }
+    // Move map to the new selected address
+    _moveMapToSelectedAddress();
   }
 
   Future<void> _saveNewAddress(Map<String, dynamic> newAddressData) async {
@@ -653,6 +696,26 @@ class _HomeScreenState extends State<HomeScreen> {
     final double lat = _selectedAddress?['latitude'] ?? 2.9222396;
     final double lng = _selectedAddress?['longitude'] ?? 101.636466;
 
+    final Set<Marker> restaurantMarkers = restaurants
+        .where((r) => r['latitude'] != null && r['longitude'] != null)
+        .map((r) => Marker(
+              markerId: MarkerId(r['place_id'] ?? r['name'] ?? ''),
+              position: LatLng(r['latitude'], r['longitude']),
+              infoWindow: InfoWindow(title: r['name']),
+            ))
+        .toSet();
+
+    // Add the selected location marker only if _selectedAddress is not null
+    if (_selectedAddress != null) {
+      restaurantMarkers.add(
+        Marker(
+          markerId: const MarkerId('selected_location'),
+          position: LatLng(_selectedAddress!['latitude'], _selectedAddress!['longitude']),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        ),
+      );
+    }
+
     return SizedBox(
       width: double.infinity,
       height: double.infinity,
@@ -665,14 +728,10 @@ class _HomeScreenState extends State<HomeScreen> {
         myLocationButtonEnabled: true,
         zoomControlsEnabled: false,
         mapType: MapType.normal,
-        markers: restaurants
-            .where((r) => r['latitude'] != null && r['longitude'] != null)
-            .map((r) => Marker(
-                  markerId: MarkerId(r['place_id'] ?? r['name'] ?? ''),
-                  position: LatLng(r['latitude'], r['longitude']),
-                  infoWindow: InfoWindow(title: r['name']), // Shows name on tap
-                ))
-            .toSet(),
+        markers: restaurantMarkers,
+        onMapCreated: (controller) {
+          _mapController = controller;
+        },
       ),
     );
   }
@@ -1150,22 +1209,14 @@ class _HomeScreenState extends State<HomeScreen> {
             // Helper function to select current location
             void selectCurrentLocation() async {
               Navigator.pop(context); // Close modal
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (context) =>
-                    const Center(child: CircularProgressIndicator()),
-              );
+
+              showLoadingDialog(context, message: "Updating location...");
               try {
-                // Set all saved addresses in DB to isSelected: false
-                await _updateAddressSelectionInDb(newSelectedAddress: null);
-                // Then get current location, which will update the UI state
+                await _updateAddressSelectionInDb(newSelectedAddress: null, skipLoadRestaurants: true);
                 await _getCurrentUserLocation();
+                await _loadRestaurantData();
               } finally {
-                // Make sure context is still valid before popping
-                if (Navigator.of(context, rootNavigator: true).canPop()) {
-                  Navigator.of(context, rootNavigator: true).pop();
-                }
+                hideLoadingDialog(context);
               }
             }
 
@@ -1647,5 +1698,28 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     // Refresh user data when returning from the view restaurant screen
     _fetchUserInfo();
+  }
+
+  void _moveMapToSelectedAddress() {
+    if (_mapController != null && _selectedAddress != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLng(
+          LatLng(_selectedAddress!['latitude'], _selectedAddress!['longitude']),
+        ),
+      );
+    }
+  }
+  void showLoadingDialog(BuildContext context, {String? message}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => LoadingDialog(message: message),
+    );
+  }
+
+  void hideLoadingDialog(BuildContext context) {
+    if (Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
   }
 }

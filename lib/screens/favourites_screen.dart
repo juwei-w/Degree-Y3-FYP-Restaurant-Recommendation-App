@@ -476,14 +476,14 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
 
   void _navigateToRecommend(BuildContext context) async {
     // Ensure the data is loaded before navigating.
-    await RestaurantDataService.instance.loadRestaurants();
+    final restaurants = RestaurantDataService.instance.getRestaurants();
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) =>
-              RecommendScreen(restaurants: RestaurantDataService.instance.restaurants, user: user),
+              RecommendScreen(restaurants: restaurants, user: user),
         ),
       );
     }
