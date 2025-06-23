@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import '../widgets/loading_dialog.dart'; // <-- Import your loading dialog
 import 'dart:developer'; // For log()
 
@@ -18,6 +17,14 @@ class _AdminUserManagementScreenState extends State<AdminUserManagementScreen> {
   
   // Sample user data
   List<UserItem> allUsers = [];
+
+  final List<String> _allPreferences = [
+    'chinese', 'indian', 'malay', 'korean', 
+    'japanese', 'thai', 'western', 'eastern'
+  ];
+  final List<String> _allRestrictions = [
+    'halal', 'vegetarian', 'vegan', 'beef-free'
+  ];
 
   Future<void> _logCurrentUserClaims() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -102,50 +109,112 @@ class _AdminUserManagementScreenState extends State<AdminUserManagementScreen> {
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
           ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditPreferencesDialog(UserItem user) async {
+    // Fetch the latest user data from Firestore to get up-to-date preferences/restrictions
+    final doc = await FirebaseFirestore.instance.collection('users').doc(user.id).get();
+    final data = doc.data() ?? {};
+    final Set<String> selectedPrefs = Set<String>.from(data['preferences'] ?? []);
+    final Set<String> selectedRestrictions = Set<String>.from(data['restrictions'] ?? []);
+    log('Selected Preferences: $selectedPrefs');
+    log('Selected Restrictions: $selectedRestrictions');
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Edit Preferences & Restrictions'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Preferences', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: _allPreferences.map((pref) {
+                  final isSelected = selectedPrefs.contains(pref);
+                  return ChoiceChip(
+                    label: Text(pref),
+                    selected: isSelected,
+                    selectedColor: const Color(0xFFFF7F59),
+                    backgroundColor: Colors.grey[200],
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.white : Colors.black87,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    showCheckmark: false, // No tick
+                    onSelected: (selected) {
+                      if (selected) {
+                        selectedPrefs.add(pref);
+                      } else {
+                        selectedPrefs.remove(pref);
+                      }
+                      (context as Element).markNeedsBuild();
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Restrictions', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: _allRestrictions.map((rest) {
+                  final isSelected = selectedRestrictions.contains(rest);
+                  return ChoiceChip(
+                    label: Text(rest),
+                    selected: isSelected,
+                    selectedColor: const Color(0xFFFF7F59),
+                    backgroundColor: Colors.grey[200],
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.white : Colors.black87,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    showCheckmark: false, // No tick
+                    onSelected: (selected) {
+                      if (selected) {
+                        selectedRestrictions.add(rest);
+                      } else {
+                        selectedRestrictions.remove(rest);
+                      }
+                      (context as Element).markNeedsBuild();
+                    },
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
-            onPressed: user.isAdmin
-                ? null
-                : () async {
-                    showDialog(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (context) => const LoadingDialog(message: "Setting user to admin..."),
-                    );
-                    // Set isAdmin in Firestore
-                    await FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(user.id)
-                        .update({'isAdmin': true});
-                    try {
-                      log('User ${user.name} set to admin in Firestore');
-                      log('User ID: ${user.id}');
-                      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-                      final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('setAdmin');
-                      await callable.call({'uid': user.id});
-                      if (mounted) Navigator.of(context, rootNavigator: true).pop(); // Dismiss loading
-                      Navigator.pop(context);
-                      _fetchUsers();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('${user.name} is now an admin'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    } catch (e) {
-                      log('Error calling setAdmin function: $e');
-                      if (mounted) Navigator.of(context, rootNavigator: true).pop(); // Dismiss loading
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Failed to set admin status'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: user.isAdmin ? Colors.grey : const Color(0xFFFF6B47),
-            ),
-            child: Text(user.isAdmin ? 'Already Admin' : 'Set Admin'),
+            onPressed: () async {
+              await FirebaseFirestore.instance.collection('users').doc(user.id).update({
+                'preferences': selectedPrefs.toList(),
+                'restrictions': selectedRestrictions.toList(),
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('User updated successfully'), backgroundColor: Colors.green),
+              );
+              _fetchUsers();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF6B47)),
+            child: const Text('Save'),
           ),
         ],
       ),
@@ -308,6 +377,26 @@ class _AdminUserManagementScreenState extends State<AdminUserManagementScreen> {
                   ),
                 ),
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _showEditPreferencesDialog(user),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.grey[300]!),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(25),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text(
+                    'Edit',
+                    style: TextStyle(
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ],
@@ -322,6 +411,8 @@ class UserItem {
   final String email;
   final bool isAdmin;
   final Color backgroundColor;
+  final List<String>? preferences;
+  final List<String>? restrictions;
 
   UserItem({
     required this.id,
@@ -329,6 +420,8 @@ class UserItem {
     required this.email,
     required this.isAdmin,
     required this.backgroundColor,
+    this.preferences,
+    this.restrictions,
   });
 
   UserItem copyWith({
@@ -337,6 +430,8 @@ class UserItem {
     String? email,
     bool? isAdmin,
     Color? backgroundColor,
+    List<String>? preferences,
+    List<String>? restrictions,
   }) {
     return UserItem(
       id: id ?? this.id,
@@ -344,6 +439,8 @@ class UserItem {
       email: email ?? this.email,
       isAdmin: isAdmin ?? this.isAdmin,
       backgroundColor: backgroundColor ?? this.backgroundColor,
+      preferences: preferences ?? this.preferences,
+      restrictions: restrictions ?? this.restrictions,
     );
   }
 }
