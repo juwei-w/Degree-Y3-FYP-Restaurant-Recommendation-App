@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 class AdminFeedbackManagementScreen extends StatefulWidget {
@@ -10,46 +11,50 @@ class AdminFeedbackManagementScreen extends StatefulWidget {
 class _AdminFeedbackManagementScreenState extends State<AdminFeedbackManagementScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  
-  // Sample data - replace with your actual data fetching
-  final List<FeedbackItem> _allFeedbacks = [
-    FeedbackItem(id: '1', userName: 'Jane Doe', userImage: 'assets/images/profile.png', message: 'Great app, very useful!', date: DateTime.now().subtract(const Duration(days: 1)), rating: 5, isNew: true),
-    FeedbackItem(id: '2', userName: 'John Smith', userImage: 'assets/images/profile.png', message: 'Found a bug on the payment screen.', date: DateTime.now().subtract(const Duration(hours: 5)), rating: 2, isNew: true),
-    FeedbackItem(id: '3', userName: 'Alice Wonderland', userImage: 'assets/images/profile.png', message: 'Love the new features!', date: DateTime.now().subtract(const Duration(days: 2)), rating: 4, isNew: false),
-  ];
 
-  List<FeedbackItem> get _newFeedbacks => _allFeedbacks.where((f) => f.isNew).toList();
-  List<FeedbackItem> get _resolvedFeedbacks => _allFeedbacks.where((f) => !f.isNew).toList();
+  List<FeedbackItem> _allFeedbacks = [];
+  bool _isLoading = true;
+
+  List<FeedbackItem> get _newFeedbacks => _allFeedbacks.where((f) => !f.resolved).toList();
+  List<FeedbackItem> get _resolvedFeedbacks => _allFeedbacks.where((f) => f.resolved).toList();
 
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    // Add listener to rebuild UI when tab changes, e.g., by swiping TabBarView
     _tabController.addListener(() {
-      if (_tabController.indexIsChanging) {
-        // Optional: handle if index is changing (mid-swipe)
-      } else {
-        // Update state when tab animation completes
-        setState(() {});
-      }
+      if (!_tabController.indexIsChanging) setState(() {});
     });
+    _fetchFeedbacks();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
+  Future<void> _fetchFeedbacks() async {
+    setState(() => _isLoading = true);
+    final snapshot = await FirebaseFirestore.instance
+        .collection('feedback')
+        .orderBy('timestamp', descending: true)
+        .get();
 
-  void _showReplyDialog(FeedbackItem feedback) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return ReplyDialog(feedback: feedback);
-      },
-    );
+    _allFeedbacks = snapshot.docs.map((doc) {
+      final data = doc.data();
+      return FeedbackItem(
+        id: doc.id,
+        userName: data['user_name'] ?? 'Unknown User',
+        userId: data['user_id'] ?? '',
+        userImage: 'assets/images/profile.png',
+        message: data['feedback'] ?? '',
+        date: DateTime.tryParse(data['timestamp'] ?? '') ?? DateTime.now(),
+        rating: (data['rating'] is int)
+            ? data['rating']
+            : (data['rating'] is double)
+                ? (data['rating'] as double).round()
+                : 0,
+        resolved: data['resolved'] ?? false,
+      );
+    }).toList();
+
+    setState(() => _isLoading = false);
   }
 
   Widget _buildToggleTabs() {
@@ -151,25 +156,22 @@ class _AdminFeedbackManagementScreenState extends State<AdminFeedbackManagementS
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Custom Toggle Tabs
-          _buildToggleTabs(), // Use the new custom toggle
-
-          // Tab Content
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
               children: [
-                // New Feedbacks
-                _buildFeedbackList(_newFeedbacks),
-                // Resolved Feedbacks
-                _buildFeedbackList(_resolvedFeedbacks, isResolvedList: true),
+                _buildToggleTabs(),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildFeedbackList(_newFeedbacks),
+                      _buildFeedbackList(_resolvedFeedbacks, isResolvedList: true),
+                    ],
+                  ),
+                ),
               ],
             ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -203,29 +205,29 @@ class _AdminFeedbackManagementScreenState extends State<AdminFeedbackManagementS
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                CircleAvatar(
-                  backgroundImage: AssetImage(feedback.userImage),
-                  radius: 20,
+                // Profile picture and user info (user id and date) stacked vertically
+                Column(
+                  children: [
+                    CircleAvatar(
+                      backgroundImage: AssetImage(feedback.userImage),
+                      radius: 20,
+                    ),
+                  ],
                 ),
                 const SizedBox(width: 12),
+                // Name vertically centered with profile picture
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        feedback.userName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      feedback.userName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
                       ),
-                      Text(
-                        // Format date as needed, e.g., using intl package
-                        '${feedback.date.day}/${feedback.date.month}/${feedback.date.year}',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
                 // Star rating
@@ -240,31 +242,63 @@ class _AdminFeedbackManagementScreenState extends State<AdminFeedbackManagementS
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
+            Text(
+              feedback.userId,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey[500],
+                fontFamily: 'SofiaSans',
+              ),
+            ),
+            Text(
+              '${feedback.date.day}/${feedback.date.month}/${feedback.date.year}',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 8),
             Text(
               feedback.message,
               style: TextStyle(fontSize: 14, color: Colors.grey[800]),
             ),
             const SizedBox(height: 12),
-            if (feedback.isNew && !isResolvedList)
-              Align(
-                alignment: Alignment.centerRight,
-                child: ElevatedButton(
-                  onPressed: () => _showReplyDialog(feedback),
+            // RESOLVE/UNRESOLVE BUTTON AND RESOLVED TEXT IN THE SAME ROW
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Resolved text aligned left
+                if (feedback.resolved && isResolvedList)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 0.0),
+                    child: Text(
+                      'Resolved',
+                      style: TextStyle(
+                        fontStyle: FontStyle.italic,
+                        color: Colors.green[700],
+                      ),
+                    ),
+                  )
+                else
+                const SizedBox(), // Keeps spacing consistent if not resolved
+                ElevatedButton(
+                  onPressed: () async {
+                    await FirebaseFirestore.instance
+                        .collection('feedback')
+                        .doc(feedback.id)
+                        .update({'resolved': !feedback.resolved});
+                    _fetchFeedbacks();
+                  },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF6B47),
+                    backgroundColor: feedback.resolved
+                        ? Colors.grey
+                        : const Color(0xFFFF6B47),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(20),
                     ),
                   ),
-                  child: const Text('Reply'),
+                  child: Text(feedback.resolved ? 'Unresolve' : 'Resolve'),
                 ),
-              ),
-            if (!feedback.isNew && isResolvedList)
-              Text(
-                'Replied: Thank you for your feedback! We are looking into it.', // Example reply
-                style: TextStyle(fontStyle: FontStyle.italic, color: Colors.green[700]),
-              )
+              ],
+            ),
           ],
         ),
       ),
@@ -275,20 +309,22 @@ class _AdminFeedbackManagementScreenState extends State<AdminFeedbackManagementS
 class FeedbackItem {
   final String id;
   final String userName;
+  final String userId;
   final String userImage;
   final String message;
   final DateTime date;
   final int rating;
-  bool isNew; // To distinguish between new and resolved
+  final bool resolved;
 
   FeedbackItem({
     required this.id,
     required this.userName,
+    required this.userId,
     required this.userImage,
     required this.message,
     required this.date,
     required this.rating,
-    this.isNew = true,
+    required this.resolved,
   });
 }
 
