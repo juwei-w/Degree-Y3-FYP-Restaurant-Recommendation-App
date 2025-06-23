@@ -17,6 +17,11 @@ import '../widgets/loading_dialog.dart';
 
 final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
 
+class RestaurantCache {
+  static List<Map<String, dynamic>> restaurants = [];
+  static Map<String, dynamic>? lastLoadedAddress;
+}
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -24,7 +29,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin {
   String _userName = 'User Name';
   String _userEmail = 'user@email.com';
 
@@ -49,7 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    debugPrint('HomeScreen initState called');
+    log('HomeScreen initState called');
     _dragController.addListener(() {
       if (_dragPosition != _dragController.size) {
         setState(() {
@@ -57,6 +62,11 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     });
+
+    // Restore from cache if available
+    restaurants = RestaurantCache.restaurants;
+    _lastLoadedAddress = RestaurantCache.lastLoadedAddress;
+
     _initializeData();
   }
 
@@ -69,12 +79,20 @@ class _HomeScreenState extends State<HomeScreen> {
       await _getCurrentUserLocation();
     }
 
+    // Set _lastLoadedAddress if not set yet
+    if (_selectedAddress != null && _lastLoadedAddress == null) {
+      _lastLoadedAddress = Map<String, dynamic>.from(_selectedAddress!);
+      log('[_initializeData] Set _lastLoadedAddress: $_lastLoadedAddress');
+    }
+
     // Load restaurant data after the location has been finalized
-    _loadRestaurantData();
+    await _loadRestaurantData();
+
+    // Zoom to the selected location on first run
+    _moveMapToSelectedAddress();
   }
 
   Future<void> _getCurrentUserLocation() async {
-    debugPrint('Attempting to get current location...');
     log('Attempting to get current location...');
     try {
       final position = await _locationService.getCurrentLocation();
@@ -89,13 +107,11 @@ class _HomeScreenState extends State<HomeScreen> {
             'isSelected': true,
           };
         });
-        debugPrint('Got current location: $position');
         log('Got current location: $position');
         _moveMapToSelectedAddress();
       }
     } catch (e) {
-      debugPrint('Failed to get current location: $e');
-      log('Failed to get current location: $e', name: 'HomeScreen');
+      log('Failed to get current location: $e');
       if (mounted) {
         setState(() {
           _selectedAddress = {
@@ -161,11 +177,27 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         });
 
-        // Only fetch restaurants if address changed
-        if (_selectedAddress != null &&
-            (_lastLoadedAddress == null ||
-             _selectedAddress!['latitude'] != _lastLoadedAddress!['latitude'] ||
-             _selectedAddress!['longitude'] != _lastLoadedAddress!['longitude'])) {
+        bool _isSameLocation(Map<String, dynamic> a, Map<String, dynamic> b, {double tolerance = 0.0001}) {
+          return (a['latitude'] - b['latitude']).abs() < tolerance &&
+                (a['longitude'] - b['longitude']).abs() < tolerance;
+        }
+
+        log('[_fetchUserInfo] _selectedAddress: $_selectedAddress');
+        log('[_fetchUserInfo] _lastLoadedAddress: $_lastLoadedAddress');
+
+        if (_selectedAddress != null && _lastLoadedAddress != null) {
+          log('[_fetchUserInfo] Checking if locations are the same...');
+          if (_isSameLocation(_selectedAddress!, _lastLoadedAddress!)) {
+            log('[_fetchUserInfo] Location unchanged, using cached restaurants.');
+            setState(() {
+              restaurants = RestaurantDataService.instance.getRestaurants();
+            });
+          } else {
+            log('[_fetchUserInfo] Location changed, fetching new restaurants.');
+            await _loadRestaurantData();
+          }
+        } else {
+          log('[_fetchUserInfo] One or both addresses are null, fetching restaurants.');
           await _loadRestaurantData();
         }
       }
@@ -173,19 +205,30 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadRestaurantData() async {
-    if (_selectedAddress == null) return;
+    if (_selectedAddress == null) {
+      log('[_loadRestaurantData] _selectedAddress is null, aborting.');
+      return;
+    }
+
+    if (_lastLoadedAddress != null) {
+      log('[_loadRestaurantData] _lastLoadedAddress: $_lastLoadedAddress');
+      log('[_loadRestaurantData] _selectedAddress: $_selectedAddress');
+    }
 
     // Prevent refetch if address hasn't changed
-    if (_lastLoadedAddress != null &&
-        _selectedAddress!['latitude'] == _lastLoadedAddress!['latitude'] &&
-        _selectedAddress!['longitude'] == _lastLoadedAddress!['longitude']) {
-      log('Address unchanged, skipping restaurant fetch.');
+    bool _isSameLocation(Map<String, dynamic> a, Map<String, dynamic> b, {double tolerance = 0.0001}) {
+      return (a['latitude'] - b['latitude']).abs() < tolerance &&
+            (a['longitude'] - b['longitude']).abs() < tolerance;
+    }
+
+    if (_lastLoadedAddress != null && _isSameLocation(_selectedAddress!, _lastLoadedAddress!)) {
+      log('[_loadRestaurantData] Address unchanged, skipping restaurant fetch.');
       return;
     }
 
     showLoadingDialog(context, message: "Fetching restaurants...");
     try {
-      log('Attempting to load restaurants with coordinates: ${_selectedAddress!['latitude']}, ${_selectedAddress!['longitude']}');
+      log('[_loadRestaurantData] Fetching restaurants for: ${_selectedAddress!['latitude']}, ${_selectedAddress!['longitude']}');
       await RestaurantDataService.instance.loadRestaurants(
         latitude: _selectedAddress!['latitude'],
         longitude: _selectedAddress!['longitude'],
@@ -194,6 +237,12 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           restaurants = RestaurantDataService.instance.getRestaurants();
           _lastLoadedAddress = Map<String, dynamic>.from(_selectedAddress!);
+
+          // Save to cache
+          RestaurantCache.restaurants = restaurants;
+          RestaurantCache.lastLoadedAddress = _lastLoadedAddress;
+
+          log('[_loadRestaurantData] Updated _lastLoadedAddress: $_lastLoadedAddress');
         });
       }
     } finally {
@@ -333,7 +382,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context); // <-- Important for keep-alive
     return Scaffold(
       backgroundColor: Colors.white,
       // App drawer (side menu)
@@ -1639,7 +1692,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (context) => const FavouritesScreen()),
     );
     // Refresh user data when returning from the favourites screen
-    _fetchUserInfo();
+    // _fetchUserInfo();
   }
 
   void _navigateToWelcome(BuildContext context) {

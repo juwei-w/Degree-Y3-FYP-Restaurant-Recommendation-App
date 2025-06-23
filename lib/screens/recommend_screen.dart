@@ -4,14 +4,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../widgets/loading_dialog.dart'; // <-- Import the global loading dialog helper
 import 'view_restaurant_screen.dart';
 
 class RecommendScreen extends StatefulWidget {
-  // Add a field to hold the list of restaurants passed from another screen.
   final List<Map<String, dynamic>> restaurants;
   final User user;
 
-  // Update the constructor to require this list.
   const RecommendScreen({Key? key, required this.restaurants, required this.user})
       : super(key: key);
 
@@ -28,21 +27,17 @@ class _RecommendScreenState extends State<RecommendScreen>
   late AnimationController _cardAnimationController;
   late Animation<double> _likeAnimation;
   late Animation<double> _dislikeAnimation;
-  // Remove: late Animation<Offset> _cardSlideAnimation;
 
-  // Add a state variable to track the card's drag offset.
   Offset _dragOffset = Offset.zero;
 
-  // New state variables for handling recommendations
   List<Map<String, dynamic>> _recommendedRestaurants = [];
-  bool _isLoading = true;
   String? _error;
 
   int currentIndex = 0;
-  // --- NEW: Map to store the interaction state for each restaurant ---
-  final Map<String, String> _interactionStates = {}; // e.g., {'place_id': 'liked'}
-  // --- NEW: State variable to hold the user's profile ---
+  final Map<String, String> _interactionStates = {};
   Map<String, dynamic>? _userProfile;
+
+  bool _hasFetchedRecommendations = false;
 
   @override
   void initState() {
@@ -56,7 +51,6 @@ class _RecommendScreenState extends State<RecommendScreen>
       vsync: this,
     );
     _cardAnimationController = AnimationController(
-      // Adjust duration for swipe/snap animations
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
@@ -76,12 +70,37 @@ class _RecommendScreenState extends State<RecommendScreen>
       parent: _dislikeAnimationController,
       curve: Curves.elasticOut,
     ));
-
-    // Fetch personalized recommendations when the screen loads.
-    _fetchHybridRecommendations();
   }
 
-  /// Helper function to recursively convert Firestore Timestamps to JSON-encodable strings.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_hasFetchedRecommendations) {
+      _hasFetchedRecommendations = true;
+      _fetchHybridRecommendations();
+    }
+  }
+
+  void _safeShowLoadingDialog(BuildContext context, {String? message}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showLoadingDialog(context, message: message);
+    });
+  }
+
+  void showLoadingDialog(BuildContext context, {String? message}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => LoadingDialog(message: message),
+    );
+  }
+
+  void hideLoadingDialog(BuildContext context) {
+    if (Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
   dynamic _convertTimestamps(dynamic value) {
     if (value is Timestamp) {
       return value.toDate().toIso8601String();
@@ -95,22 +114,18 @@ class _RecommendScreenState extends State<RecommendScreen>
     return value;
   }
 
-  /// Fetches personalized recommendations from the backend.
   Future<void> _fetchHybridRecommendations() async {
-    // Use the user object passed through the widget constructor.
     final user = widget.user;
 
     if (widget.restaurants.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      setState(() {
+        _error = "No restaurants available for recommendations.";
+      });
       return;
     }
 
+    _safeShowLoadingDialog(context, message: "Fetching recommendations...");
     try {
-      // --- 1. Fetch the user's full profile from Firestore ---
       final userQuery = await FirebaseFirestore.instance
           .collection('users')
           .where('uid', isEqualTo: user.uid)
@@ -121,27 +136,20 @@ class _RecommendScreenState extends State<RecommendScreen>
         throw Exception("User profile not found in Firestore for UID: ${user.uid}");
       }
       final userProfileData = userQuery.docs.first.data();
-      // --- Store the user profile to use later ---
       _userProfile = userProfileData;
-      
-      // --- 1.5 Convert Firestore Timestamps before encoding ---
       final encodableUserProfile = _convertTimestamps(userProfileData);
 
-      // --- 2. Prepare the request for the backend ---
       final String? baseUrl = dotenv.env['API_BASE_URL'];
       if (baseUrl == null) {
         throw Exception("API_BASE_URL not found in .env file");
       }
-      // The URL no longer needs a query parameter
       final url = Uri.parse('$baseUrl/recommender/hybrid_recommendations/');
 
-      // The body now includes both the restaurants and the user's profile
       final requestBody = json.encode({
         'restaurants': widget.restaurants,
-        'user_profile': encodableUserProfile, // CORRECTED KEY and use the converted profile
+        'user_profile': encodableUserProfile,
       });
 
-      // --- 3. Make the POST request ---
       final response = await http
           .post(
             url,
@@ -156,14 +164,12 @@ class _RecommendScreenState extends State<RecommendScreen>
           setState(() {
             _recommendedRestaurants = jsonData
                 .map((item) => item as Map<String, dynamic>)
-                // Filter out any restaurants that are missing a valid place_id
                 .where((r) => r['place_id'] != null && r['place_id'] is String)
                 .toList();
-            _isLoading = false;
+            _error = null;
           });
         } else {
           setState(() {
-            _isLoading = false;
             _error =
                 "Error: Could not fetch recommendations (${response.statusCode}). Server response: ${response.body}";
           });
@@ -172,14 +178,14 @@ class _RecommendScreenState extends State<RecommendScreen>
     } catch (e) {
       if (mounted) {
         setState(() {
-          _isLoading = false;
           _error = "An error occurred: $e";
         });
       }
+    } finally {
+      hideLoadingDialog(context);
     }
   }
 
-  /// Sends feedback about a user's action on a restaurant to the backend.
   Future<void> _sendFeedback(Map<String, dynamic> restaurant, String action) async {
     final String? apiUrl = dotenv.env['API_BASE_URL'];
     if (apiUrl == null) {
@@ -223,23 +229,19 @@ class _RecommendScreenState extends State<RecommendScreen>
     bool wasLiked = _interactionStates[restaurantId] == 'liked';
 
     setState(() {
-      // If it was already liked, toggle it off. Otherwise, set it to liked.
       if (wasLiked) {
         _interactionStates.remove(restaurantId);
         isLiked = false;
       } else {
         _interactionStates[restaurantId] = 'liked';
         isLiked = true;
-        isDisliked = false; // A restaurant can't be liked and disliked
-        // --- SEND FEEDBACK: LIKE ---
+        isDisliked = false;
         _sendFeedback(restaurant, 'like');
       }
     });
     _likeAnimationController.forward().then((_) {
       _likeAnimationController.reverse();
-      // If the card was newly liked, animate to the next one.
       if (!wasLiked && isLiked && currentIndex < _recommendedRestaurants.length - 1) {
-        // Pass a flag to prevent sending a 'skip' feedback as well.
         _animateSwipe(isSwipeUp: true, sendFeedback: false);
       }
     });
@@ -251,33 +253,25 @@ class _RecommendScreenState extends State<RecommendScreen>
     bool wasDisliked = _interactionStates[restaurantId] == 'disliked';
 
     setState(() {
-      // If it was already disliked, toggle it off. Otherwise, set it to disliked.
       if (wasDisliked) {
         _interactionStates.remove(restaurantId);
         isDisliked = false;
       } else {
         _interactionStates[restaurantId] = 'disliked';
         isDisliked = true;
-        isLiked = false; // A restaurant can't be liked and disliked
-        // --- SEND FEEDBACK: DISLIKE ---
+        isLiked = false;
         _sendFeedback(restaurant, 'dislike');
       }
     });
 
     _dislikeAnimationController.forward().then((_) {
       _dislikeAnimationController.reverse();
-      // If the card was newly disliked, animate to the next one.
       if (!wasDisliked && isDisliked && currentIndex < _recommendedRestaurants.length - 1) {
-        // Pass a flag to prevent sending a 'skip' feedback as well.
         _animateSwipe(isSwipeUp: true, sendFeedback: false);
       }
     });
   }
 
-  // The _nextRestaurant and _previousRestaurant methods are no longer needed,
-  // as this logic is now handled by the gesture handlers and _animateSwipe.
-
-  /// Animates the card back to its original centered position.
   void _animateSnapBack() {
     final animation = Tween<Offset>(begin: _dragOffset, end: Offset.zero)
         .animate(CurvedAnimation(parent: _cardAnimationController, curve: Curves.easeOut));
@@ -292,17 +286,12 @@ class _RecommendScreenState extends State<RecommendScreen>
     _cardAnimationController.forward();
   }
 
-  /// Animates the card off-screen and loads the next/previous card.
   void _animateSwipe({required bool isSwipeUp, bool sendFeedback = true}) {
     final restaurant = _recommendedRestaurants[currentIndex];
     final restaurantId = restaurant['place_id'] as String;
 
-    // --- SEND FEEDBACK: SKIP ---
-    // Send feedback for a 'skip' action only if it was a direct swipe up
-    // AND the user hasn't already interacted with this card.
     if (isSwipeUp && sendFeedback && !_interactionStates.containsKey(restaurantId)) {
       _sendFeedback(restaurant, 'skip');
-      // --- Record the skip interaction to prevent future duplicate feedback ---
       setState(() {
         _interactionStates[restaurantId] = 'skipped';
       });
@@ -322,7 +311,6 @@ class _RecommendScreenState extends State<RecommendScreen>
 
     _cardAnimationController.reset();
     _cardAnimationController.forward().then((_) {
-      // After swipe animation is complete, update the card index
       setState(() {
         if (isSwipeUp) {
           if (currentIndex < _recommendedRestaurants.length - 1) {
@@ -333,8 +321,6 @@ class _RecommendScreenState extends State<RecommendScreen>
             currentIndex--;
           }
         }
-        // --- UPDATE STATE FOR NEW CARD ---
-        // Get the interaction state for the new card and update the UI buttons.
         final newRestaurantId = _recommendedRestaurants[currentIndex]['place_id'] as String;
         final previousState = _interactionStates[newRestaurantId] ?? 'none';
         isLiked = previousState == 'liked';
@@ -346,16 +332,6 @@ class _RecommendScreenState extends State<RecommendScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Handle loading state
-    if (_isLoading) {
-      return Scaffold(
-        backgroundColor: const Color(0xFFFF7B54),
-        body: const Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
-      );
-    }
-
     // Handle error state
     if (_error != null) {
       return Scaffold(
@@ -372,23 +348,116 @@ class _RecommendScreenState extends State<RecommendScreen>
       );
     }
 
-    // Handle the case where no recommendations are returned.
+    // Show mockup card while loading recommendations
     if (_recommendedRestaurants.isEmpty) {
       return Scaffold(
         appBar: AppBar(
           title: const Text("Recommendations"),
           backgroundColor: const Color(0xFFFF7B54),
         ),
-        body: const Center(
-          child: Text("No personalized recommendations found."),
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFFFF6B47),
+                Color(0xFFFFB5A3),
+              ],
+            ),
+          ),
+          child: SafeArea(
+            child: Column(
+              children: [
+                const SizedBox(height: 40),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                  child: Container(
+                    height: 270,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      color: Colors.white.withOpacity(0.3),
+                    ),
+                    child: const Center(
+                      child: Icon(Icons.restaurant, size: 80, color: Colors.white54),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.symmetric(horizontal: 24),
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: 120,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: 80,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Container(
+                  width: double.infinity,
+                  height: 44,
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(28),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 32.0),
+                  child: CircularProgressIndicator(color: Colors.white),
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }
 
-    // Get the current restaurant from the recommended list.
     final restaurant = _recommendedRestaurants[currentIndex];
 
-    // Construct the photo URL using the same logic as the home screen.
     String? photoUrl;
     final String? apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
     if (restaurant['photos'] != null &&
@@ -403,13 +472,11 @@ class _RecommendScreenState extends State<RecommendScreen>
 
     return Scaffold(
       body: GestureDetector(
-        // Replace onVerticalDragEnd with a full suite of gesture handlers.
         onVerticalDragStart: (details) {
           _cardAnimationController.stop();
         },
         onVerticalDragUpdate: (details) {
           setState(() {
-            // Update the offset as the user drags.
             _dragOffset += details.delta;
           });
         },
@@ -418,21 +485,15 @@ class _RecommendScreenState extends State<RecommendScreen>
           final isFirstCard = currentIndex == 0;
           final isLastCard = currentIndex == _recommendedRestaurants.length - 1;
 
-          // Decide whether to swipe away or snap back based on velocity and position.
-          // Swipe Up (Next card), but not if it's the last card.
           if ((details.primaryVelocity! < -500 ||
                   _dragOffset.dy < -screenHeight / 4) &&
               !isLastCard) {
             _animateSwipe(isSwipeUp: true);
-          }
-          // Swipe Down (Previous card), but not if it's the first card.
-          else if ((details.primaryVelocity! > 500 ||
+          } else if ((details.primaryVelocity! > 500 ||
                   _dragOffset.dy > screenHeight / 4) &&
               !isFirstCard) {
             _animateSwipe(isSwipeUp: false);
-          }
-          // Otherwise, snap back to the center.
-          else {
+          } else {
             _animateSnapBack();
           }
         },
@@ -450,7 +511,6 @@ class _RecommendScreenState extends State<RecommendScreen>
           child: SafeArea(
             child: Column(
               children: [
-                // Header with back button
                 Padding(
                   padding: const EdgeInsets.all(20.0),
                   child: Row(
@@ -468,10 +528,7 @@ class _RecommendScreenState extends State<RecommendScreen>
                           ),
                         ),
                       ),
-
-                      const Spacer(), // Pushes the score to the other side
-
-                      // --- TEMPORARY CODE FOR TESTING ---
+                      const Spacer(),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
@@ -495,14 +552,10 @@ class _RecommendScreenState extends State<RecommendScreen>
                             ),
                         ],
                       ),
-                      // --- END OF TEMPORARY CODE ---
                     ],
                   ),
                 ),
-
-                // Main content
                 Expanded(
-                  // Replace SlideTransition with Transform.translate to follow the finger.
                   child: Transform.translate(
                     offset: _dragOffset,
                     child: Padding(
@@ -510,7 +563,6 @@ class _RecommendScreenState extends State<RecommendScreen>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.start,
                         children: [
-                          // Restaurant image
                           Flexible(
                             child: Container(
                               height: 270,
@@ -532,58 +584,46 @@ class _RecommendScreenState extends State<RecommendScreen>
                                         photoUrl,
                                         fit: BoxFit.cover,
                                         errorBuilder: (context, error, stackTrace) {
-                                          // Use the asset image as a fallback on error.
                                           return Image.asset('assets/images/tacos.png', fit: BoxFit.cover);
                                         },
                                       )
-                                    // Use the asset image as a fallback if no URL exists.
                                     : Image.asset('assets/images/tacos.png', fit: BoxFit.cover),
                               ),
                             ),
                           ),
-
-                          const SizedBox(height: 12), // COMPRESSED: Reduced spacing
-
-                          // Restaurant name
+                          const SizedBox(height: 12),
                           Text(
                             restaurant['name'],
                             style: const TextStyle(
-                              fontSize: 22, // smaller
+                              fontSize: 22,
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
                             ),
                             textAlign: TextAlign.center,
-                            maxLines: 2, // Allow up to two lines for the name
-                            overflow: TextOverflow.ellipsis, // Add ... if it overflows
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-
                           const SizedBox(height: 10),
-
-                          // Rating
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               const Icon(
                                 Icons.star,
                                 color: Colors.amber,
-                                size: 18, // smaller
+                                size: 18,
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                // Use the correct keys from your API data
                                 '${restaurant['rating'] ?? 'N/A'} (${restaurant['user_ratings_total'] ?? 0})',
                                 style: const TextStyle(
-                                  fontSize: 14, // smaller
+                                  fontSize: 14,
                                   color: Colors.white70,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ],
                           ),
-
                           const SizedBox(height: 10),
-
-                          // Price range - Updated logic as per your request
                           Builder(
                             builder: (context) {
                               String? priceRangeText;
@@ -622,7 +662,6 @@ class _RecommendScreenState extends State<RecommendScreen>
                                 }
                               }
 
-                              // If no valid price text could be determined, show nothing.
                               if (priceRangeText == null) {
                                 return const SizedBox.shrink();
                               }
@@ -630,20 +669,17 @@ class _RecommendScreenState extends State<RecommendScreen>
                               return Text(
                                 'Price: $priceRangeText',
                                 style: const TextStyle(
-                                  fontSize: 16, // smaller
+                                  fontSize: 16,
                                   color: Colors.white,
                                   fontWeight: FontWeight.w600,
                                 ),
                               );
                             },
                           ),
-
                           const SizedBox(height: 14),
-
-                          // categories - Constrained to a height of approx. 2 rows and scrollable.
                           ConstrainedBox(
                             constraints: const BoxConstraints(
-                              maxHeight: 70, // Set a max height for about two rows of tags
+                              maxHeight: 70,
                             ),
                             child: SingleChildScrollView(
                               child: Center(
@@ -651,7 +687,6 @@ class _RecommendScreenState extends State<RecommendScreen>
                                   spacing: 8,
                                   runSpacing: 8,
                                   alignment: WrapAlignment.center,
-                                  // Use the correct key 'categories' and handle the case where it might be null.
                                   children: (restaurant['categories'] as List<dynamic>? ?? [])
                                       .map<Widget>((category) => Container(
                                             padding: const EdgeInsets.symmetric(
@@ -667,7 +702,7 @@ class _RecommendScreenState extends State<RecommendScreen>
                                               style: const TextStyle(
                                                 color: Colors.black54,
                                                 fontWeight: FontWeight.w500,
-                                                fontSize: 12, // smaller
+                                                fontSize: 12,
                                               ),
                                               maxLines: 2,
                                               overflow: TextOverflow.ellipsis,
@@ -678,32 +713,25 @@ class _RecommendScreenState extends State<RecommendScreen>
                               ),
                             ),
                           ),
-
                           const SizedBox(height: 24),
-
-                          // View Restaurant button
                           Container(
                             width: double.infinity,
-                            height: 44, // smaller
+                            height: 44,
                             margin: const EdgeInsets.symmetric(horizontal: 20),
                             child: ElevatedButton(
                               onPressed: () {
                                 final restaurant = _recommendedRestaurants[currentIndex];
                                 final restaurantId = restaurant['place_id'] as String;
 
-                                // --- SEND FEEDBACK: CLICK_DETAILS ---
                                 _sendFeedback(restaurant, 'click_details');
 
-                                // --- Record the interaction to prevent a later 'skip' ---
                                 setState(() {
                                   _interactionStates[restaurantId] = 'viewed';
                                 });
 
-                                // Determine if the current restaurant is a favorite.
                                 final List<dynamic> favorites = _userProfile?['favorites'] as List<dynamic>? ?? [];
                                 final bool isFavourite = favorites.contains(restaurant['place_id']);
 
-                                // Navigate to the restaurant details screen with the required data.
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -732,21 +760,17 @@ class _RecommendScreenState extends State<RecommendScreen>
                               ),
                             ),
                           ),
-
                           const SizedBox(height: 24),
-
-                          // Like/Dislike buttons
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
-                              // Dislike button
                               ScaleTransition(
                                 scale: _dislikeAnimation,
                                 child: Container(
                                   decoration: BoxDecoration(
-                                    color: isDisliked // Change color based on state
-                                        ? const Color(0xFFFF5722) // Active color
-                                        : Colors.white, // Inactive color
+                                    color: isDisliked
+                                        ? const Color(0xFFFF5722)
+                                        : Colors.white,
                                     shape: BoxShape.circle,
                                     boxShadow: [
                                       BoxShadow(
@@ -759,10 +783,10 @@ class _RecommendScreenState extends State<RecommendScreen>
                                   child: IconButton(
                                     onPressed: _toggleDislike,
                                     icon: Icon(
-                                      isDisliked // Change icon based on state
-                                          ? Icons.thumb_down // Filled icon
-                                          : Icons.thumb_down_outlined, // Outlined icon
-                                      color: isDisliked // Change icon color
+                                      isDisliked
+                                          ? Icons.thumb_down
+                                          : Icons.thumb_down_outlined,
+                                      color: isDisliked
                                           ? Colors.white
                                           : const Color(0xFFFF5722),
                                       size: 25,
@@ -771,8 +795,6 @@ class _RecommendScreenState extends State<RecommendScreen>
                                   ),
                                 ),
                               ),
-
-                              // Like button
                               ScaleTransition(
                                 scale: _likeAnimation,
                                 child: Container(
