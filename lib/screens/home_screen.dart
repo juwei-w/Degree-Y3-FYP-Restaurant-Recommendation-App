@@ -51,6 +51,9 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
   GoogleMapController? _mapController;
 
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> filteredRestaurants = [];
+
   @override
   void initState() {
     super.initState();
@@ -68,6 +71,10 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     _lastLoadedAddress = RestaurantCache.lastLoadedAddress;
 
     _initializeData();
+
+    _searchController.addListener(() {
+      _filterRestaurants(_searchController.text);
+    });
   }
 
   Future<void> _initializeData() async {
@@ -236,6 +243,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       if (mounted) {
         setState(() {
           restaurants = RestaurantDataService.instance.getRestaurants();
+          filteredRestaurants = List<Map<String, dynamic>>.from(restaurants);
           _lastLoadedAddress = Map<String, dynamic>.from(_selectedAddress!);
 
           // Save to cache
@@ -874,6 +882,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                         ),
                         Expanded(
                           child: TextField(
+                            controller: _searchController,
                             decoration: const InputDecoration(
                               hintText: 'Find for food or restaurant...',
                               hintStyle: TextStyle(
@@ -884,6 +893,15 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                               focusedBorder: InputBorder.none, // Remove orange border when active
                               enabledBorder: InputBorder.none, // Remove border when enabled
                             ),
+                            onChanged: (value) {
+                              setState(() {
+                                filteredRestaurants = restaurants.where((restaurant) {
+                                  final restaurantName = restaurant['name']?.toLowerCase() ?? '';
+                                  final searchTerm = value.toLowerCase();
+                                  return restaurantName.contains(searchTerm);
+                                }).toList();
+                              });
+                            },
                           ),
                         ),
                         Container(
@@ -957,9 +975,9 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                     padding: EdgeInsets.only(
                       bottom: MediaQuery.of(context).padding.bottom + 80,
                     ),
-                    itemCount: restaurants.length,
+                    itemCount: filteredRestaurants.length,
                     itemBuilder: (context, index) {
-                      final restaurant = restaurants[index];
+                      final restaurant = filteredRestaurants[index];
                       return _buildRestaurantCard(restaurant);
                     },
                   ),
@@ -1774,5 +1792,15 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     if (Navigator.of(context, rootNavigator: true).canPop()) {
       Navigator.of(context, rootNavigator: true).pop();
     }
+  }
+
+  void _filterRestaurants(String query) {
+    query = query.toLowerCase();
+    setState(() {
+      filteredRestaurants = restaurants.where((restaurant) {
+        final name = restaurant['name']?.toLowerCase() ?? '';
+        return name.contains(query);
+      }).toList();
+    });
   }
 }
