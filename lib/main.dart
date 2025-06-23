@@ -4,22 +4,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:developer'; // For log()
 
-// Import your screen widgets
-// import 'screens/profile_screen.dart'; // Make sure this path is correct
-// import 'screens/login_screen.dart';   // Make sure this path is correct
-// Import other screens if needed for routes, e.g.:
-// import 'screens/admin_home_screen.dart';
-// import 'screens/welcome_screen.dart';
-import 'screens/home_screen.dart'; // Import your home screen or main screen
-// import 'screens/my_location_screen.dart'; // Import your location screen
+import 'screens/home_screen.dart';
+import 'screens/admin_home_screen.dart'; // Add this import
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Ensure Firebase is initialized.
-  // If you used Firebase CLI and have firebase_options.dart, uncomment the next line:
-  // await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await Firebase.initializeApp(); // Use this if you don't have options file or for basic init
-  await dotenv.load(); // Make sure this line runs first!
+  await Firebase.initializeApp();
+  await dotenv.load();
 
   User? user;
   bool autoLoginSuccess = false;
@@ -29,20 +20,20 @@ Future<void> main() async {
     await FirebaseAuth.instance.signOut();
     log('Previous user signed out for testing.');
 
-    // Attempt to sign in with the specified credentials
+    // Attempt to sign in as admin
     UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-      email: "payardgt@gmail.com",
-      password: "payard",
+      email: "payardmmu@gmail.com",
+      password: "payardmmu",
     );
     user = userCredential.user;
     if (user != null) {
       autoLoginSuccess = true;
-      log('Auto-login successful for: ${user.email}');
+      log('Admin auto-login successful for: ${user.email}');
     }
   } on FirebaseAuthException catch (e) {
-    log('Auto-login failed: ${e.code} - ${e.message}');
+    log('Admin auto-login failed: ${e.code} - ${e.message}');
   } catch (e) {
-    log('An unexpected error occurred during auto-login: $e');
+    log('An unexpected error occurred during admin auto-login: $e');
   }
 
   runApp(MyApp(isAutoLoginSuccessful: autoLoginSuccess));
@@ -55,74 +46,59 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Adhering to Figma Guidelines for Theme
-    // (Font: SofiaSans, Primary Color: Based on previous interactions)
     return MaterialApp(
-      title: 'Restaurant Recommendation App', // Replace with your actual app name
+      title: 'Restaurant Recommendation App',
       theme: ThemeData(
-        primaryColor: const Color(0xFFFF7F59), // Figma Guideline: Primary Color
-        scaffoldBackgroundColor: Colors.white, // Figma Guideline: Background Color (adjust if needed)
-        fontFamily: 'SofiaSans', // Figma Guideline: Default Font
+        primaryColor: const Color(0xFFFF7F59),
+        scaffoldBackgroundColor: Colors.white,
+        fontFamily: 'SofiaSans',
         colorScheme: ColorScheme.fromSwatch().copyWith(
-          primary: const Color(0xFFFF7F59), // Figma Guideline: Primary Color
-          secondary: const Color(0xFFFF7F59), // Figma Guideline: Accent/Secondary Color (adjust as needed)
+          primary: const Color(0xFFFF7F59),
+          secondary: const Color(0xFFFF7F59),
         ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFFFF7F59), // Figma Guideline: AppBar Color
+          backgroundColor: Color(0xFFFF7F59),
           titleTextStyle: TextStyle(
-            fontFamily: 'SofiaSans', // Figma Guideline: Font
+            fontFamily: 'SofiaSans',
             fontSize: 20,
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
           iconTheme: IconThemeData(
-            color: Colors.white, // Figma Guideline: AppBar Icon Color
+            color: Colors.white,
           ),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFFF7F59), // Figma Guideline: Button Color
-            foregroundColor: Colors.white, // Figma Guideline: Button Text Color
+            backgroundColor: const Color(0xFFFF7F59),
+            foregroundColor: Colors.white,
             textStyle: const TextStyle(
-              fontFamily: 'SofiaSans', // Figma Guideline: Font
+              fontFamily: 'SofiaSans',
               fontSize: 18,
               fontWeight: FontWeight.w600,
             ),
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24), // Figma Guideline: Button Padding
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(30), // Figma Guideline: Button Shape
+              borderRadius: BorderRadius.circular(30),
             ),
           ),
         ),
-        inputDecorationTheme: InputDecorationTheme( // Figma Guideline: Input Field Style
+        inputDecorationTheme: InputDecorationTheme(
           labelStyle: const TextStyle(fontFamily: 'SofiaSans', color: Colors.grey),
           hintStyle: const TextStyle(fontFamily: 'SofiaSans', color: Colors.grey),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12), // Figma Guideline: Input Shape
+            borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFFF7F59), width: 2), // Figma Guideline: Input Focus Color
+            borderSide: const BorderSide(color: Color(0xFFFF7F59), width: 2),
           ),
         ),
       ),
       debugShowCheckedModeBanner: false,
-      // If auto-login was successful, navigate to ProfileScreen.
-      // Otherwise, fall back to LoginScreen.
-      // home: isAutoLoginSuccessful ? const ProfileScreen() : const LoginScreen(),
-      home: HomeScreen()
-      // home: MyLocationScreen()
-      // routes: {
-      //   // Define your named routes here if you use them
-      //   // This ensures ProfileScreen can be navigated to if it's not the initial home
-      //   '/profile': (context) => const ProfileScreen(),
-      //   '/login': (context) => const LoginScreen(),
-      //   '/welcome': (context) => const WelcomeScreen(),
-      //   // Example other routes based on previous discussions:
-      //   // '/adminDashboard': (context) => const AdminHomeScreen(),
-      //   // '/userHome': (context) => const HomeScreen(),
-      // },
+      // Always go to AdminHomeScreen if auto-login is successful
+      home: isAutoLoginSuccessful ? const AdminHomeScreen() : HomeScreen(),
     );
   }
 }
