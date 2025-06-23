@@ -1,3 +1,5 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'admin_feedback_management_screen.dart';
@@ -15,6 +17,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
     with TickerProviderStateMixin {
   late AnimationController _progressController;
   late Animation<double> _progressAnimation;
+
+  // Add admin info state
+  String _adminName = 'Admin';
+  String _adminEmail = 'admin@gmail.com';
 
   // Sample analytics data
   final Map<String, dynamic> analyticsData = {
@@ -43,11 +49,42 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
       parent: _progressController,
       curve: Curves.easeInOut,
     ));
-    
+
     // Start animation after a short delay
     Future.delayed(const Duration(milliseconds: 500), () {
       _progressController.forward();
     });
+
+    // Fetch admin info
+    _fetchAdminInfo();
+  }
+
+  Future<void> _fetchAdminInfo() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      String name = 'Admin';
+      String email = user.email ?? 'admin@gmail.com';
+
+      try {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+        if (userDoc.exists) {
+          final userData = userDoc.data() as Map<String, dynamic>;
+          name = userData['name'] ?? user.displayName ?? 'Admin';
+          email = userData['email'] ?? email;
+        }
+      } catch (_) {
+        // fallback to defaults
+      }
+      if (mounted) {
+        setState(() {
+          _adminName = name;
+          _adminEmail = email;
+        });
+      }
+    }
   }
 
   @override
@@ -124,9 +161,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
               ),
               
               // Admin Name (centered)
-              const Expanded(
+              Expanded(
                 child: Text(
-                  'Admin Name',
+                  _adminName,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 20,
@@ -189,33 +226,26 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
                   ),
                   const SizedBox(height: 16),
                   
-                  // Admin name and email
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  // Admin name and email (now dynamic)
+                  // User name and email
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Admin',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            'admin@gmail.com',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        ],
+                      Text(
+                        _adminName,
+                        style: const TextStyle(
+                          fontFamily: 'SofiaSans',
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                      const SizedBox(width: 8),
-                      const Icon(
-                        Icons.keyboard_arrow_down,
-                        color: Colors.grey,
+                      Text(
+                        _adminEmail,
+                        style: TextStyle(
+                          fontFamily: 'SofiaSans',
+                          fontSize: 14,
+                          color: Colors.grey[500],
+                        ),
                       ),
                     ],
                   ),
@@ -326,7 +356,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '$greeting, Admin!',
+          '$greeting, $_adminName!',
           style: const TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
