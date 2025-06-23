@@ -62,6 +62,7 @@ class _FoodRestrictionsScreenState extends State<FoodRestrictionsScreen> {
         'createdAt': FieldValue.serverTimestamp(),
         'isAdmin': false,
         'name': widget.name,
+        'email': widget.user.email,
         'preferences': widget.selectedPreferences,
         'restrictions': _selectedRestrictions.toList(),
         'address': [], // list of saved locations
