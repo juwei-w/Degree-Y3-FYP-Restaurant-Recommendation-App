@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'admin_feedback_management_screen.dart';
 import 'admin_user_management_screen.dart';
 import 'welcome_screen.dart';
+import '../widgets/loading_dialog.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({Key? key}) : super(key: key);
@@ -35,6 +36,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
     'revenueGrowth': 12.5,
   };
 
+  // Analytics state
+  int _totalUsers = 0;
+  int _totalAdmins = 0;
+  int _totalFeedback = 0;
+  int _totalFavourites = 0;
+  Map<String, int> _popularPreferences = {};
+  Map<String, int> _commonRestrictions = {};
+
   @override
   void initState() {
     super.initState();
@@ -50,13 +59,15 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
       curve: Curves.easeInOut,
     ));
 
-    // Start animation after a short delay
     Future.delayed(const Duration(milliseconds: 500), () {
       _progressController.forward();
     });
 
-    // Fetch admin info
-    _fetchAdminInfo();
+    // Schedule data fetch after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchAdminInfo();
+      _fetchAnalyticsData();
+    });
   }
 
   Future<void> _fetchAdminInfo() async {
@@ -85,6 +96,33 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
         });
       }
     }
+    // if (mounted) Navigator.of(context, rootNavigator: true).pop();
+  }
+
+  Future<void> _fetchAnalyticsData() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const LoadingDialog(message: "Loading analytics..."),
+    );
+    final totalUsers = await getTotalUsers();
+    final totalAdmins = await getTotalAdmins();
+    final totalFeedback = await getTotalFeedback();
+    final totalFavourites = await getTotalFavouritesAdded();
+    final popularPreferences = await getMostPopularPreferences(topN: 3);
+    final commonRestrictions = await getMostCommonRestrictions(topN: 3);
+
+    if (mounted) {
+      setState(() {
+        _totalUsers = totalUsers;
+        _totalAdmins = totalAdmins;
+        _totalFeedback = totalFeedback;
+        _totalFavourites = totalFavourites;
+        _popularPreferences = popularPreferences;
+        _commonRestrictions = commonRestrictions;
+      });
+      Navigator.of(context, rootNavigator: true).pop();
+    }
   }
 
   @override
@@ -104,21 +142,20 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Welcome section
             _buildWelcomeSection(),
             const SizedBox(height: 24),
-            
-            // Recommendation Accuracy Card
             _buildRecommendationAccuracyCard(),
             const SizedBox(height: 20),
-            
-            // Analytics Grid
-            _buildAnalyticsGrid(),
+            _buildAnalyticsSummaryCards(), // Only new summary cards
             const SizedBox(height: 20),
-            
-            // Recent Activity Section
-            _buildRecentActivitySection(),
-            const SizedBox(height: 80), // Space for bottom navigation
+            _buildPopularPreferencesCard(),
+            const SizedBox(height: 16),
+            _buildCommonRestrictionsCard(),
+            const SizedBox(height: 16),
+            _buildTotalFavouritesCard(),
+            const SizedBox(height: 20),
+            // _buildRecentActivitySection(),
+            // const SizedBox(height: 80),
           ],
         ),
       ),
@@ -325,24 +362,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
     );
   }
 
-  // Widget _buildAdminDrawerItem(IconData icon, String title, VoidCallback onTap) {
-  //   return ListTile(
-  //     leading: Icon(
-  //       icon,
-  //       color: const Color(0xFFFF6B47),
-  //       size: 28,
-  //     ),
-  //     title: Text(
-  //       title,
-  //       style: const TextStyle(
-  //         fontSize: 18,
-  //         fontWeight: FontWeight.w500,
-  //       ),
-  //     ),
-  //     onTap: onTap,
-  //   );
-  // }
-
   Widget _buildWelcomeSection() {
     final hour = DateTime.now().hour;
     String greeting = 'Good Morning';
@@ -483,62 +502,93 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
     );
   }
 
-  Widget _buildAnalyticsGrid() {
+  // Replace _buildAnalyticsSummaryCards with a vertical layout using the big card style:
+  Widget _buildAnalyticsSummaryCards() {
     return Column(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: _buildAnalyticsCard(
-                'New User',
-                analyticsData['newUsers'].toString(),
-                analyticsData['userGrowth'],
-                Icons.person_add,
-                Colors.orange,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildAnalyticsCard(
-                'New Restaurant',
-                analyticsData['newRestaurants'].toString(),
-                analyticsData['restaurantGrowth'],
-                Icons.restaurant,
-                Colors.green,
-              ),
-            ),
-          ],
+        _buildSummaryCard(
+          title: 'Total Users',
+          value: _totalUsers.toString(),
+          icon: Icons.people,
+          color: Colors.blue,
         ),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: _buildAnalyticsCard(
-                'Total Orders',
-                analyticsData['totalOrders'].toString(),
-                analyticsData['orderGrowth'],
-                Icons.shopping_bag,
-                Colors.blue,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildAnalyticsCard(
-                'Revenue',
-                '\$${(analyticsData['revenue'] / 1000).toStringAsFixed(1)}K',
-                analyticsData['revenueGrowth'],
-                Icons.attach_money,
-                Colors.purple,
-              ),
-            ),
-          ],
+        _buildSummaryCard(
+          title: 'Total Admins',
+          value: _totalAdmins.toString(),
+          icon: Icons.admin_panel_settings,
+          color: Colors.orange,
+        ),
+        const SizedBox(height: 16),
+        _buildSummaryCard(
+          title: 'Total Feedback',
+          value: _totalFeedback.toString(),
+          icon: Icons.feedback,
+          color: Colors.purple,
         ),
       ],
     );
   }
 
-  Widget _buildAnalyticsCard(String title, String value, dynamic growth, IconData icon, Color iconColor) {
+  Widget _buildSummaryCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+  }) {
     return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPopularPreferencesCard() {
+    return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -554,180 +604,232 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Icon
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              icon,
-              color: iconColor,
-              size: 24,
-            ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // Title
-          Text(
-            title,
+          const Text(
+            'Most Popular Preferences',
             style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
             ),
           ),
-          
-          const SizedBox(height: 8),
-          
-          // Value and growth
-          Row(
-            // Removed MainAxisAlignment.spaceBetween to let Flexible/Expanded handle distribution
-            children: [
-              Expanded( // Allow the main value to take available space and wrap/ellipsis if needed
-                child: Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                  overflow: TextOverflow.ellipsis, // Handle overflow for the value
-                  maxLines: 1,                     // Keep value on a single line
-                ),
-              ),
-              const SizedBox(width: 8), // Add explicit spacing
-              Row( // Keep the growth indicator compact
-                mainAxisSize: MainAxisSize.min, // Don't let this Row expand unnecessarily
-                children: [
-                  Icon(
-                    Icons.arrow_upward, // Assuming growth is positive
-                    color: Colors.green,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 4),
-                  Flexible( // Allow the growth text to shrink or use ellipsis
-                    child: Text(
-                      '+${growth is double ? growth.toStringAsFixed(1) : growth}${growth is double ? '%' : ''}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.green,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      overflow: TextOverflow.ellipsis, // Handle overflow for growth text
-                      maxLines: 1,                     // Keep growth text on a single line
+          const SizedBox(height: 10),
+          if (_popularPreferences.isEmpty)
+            const Text('No data available.', style: TextStyle(color: Colors.grey)),
+          ..._popularPreferences.entries.map((e) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.orange, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${e.key[0].toUpperCase()}${e.key.substring(1)}',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
                     ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+                    const Spacer(),
+                    Text(
+                      e.value.toString(),
+                      style: const TextStyle(fontSize: 14, color: Colors.black54),
+                    ),
+                  ],
+                ),
+              )),
         ],
       ),
     );
   }
 
-  Widget _buildRecentActivitySection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Recent Activity',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
+  Widget _buildCommonRestrictionsCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
-        ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-            ],
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Most Common Restrictions',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
           ),
-          child: Column(
-            children: [
-              _buildActivityItem(
-                'New restaurant "Pizza Palace" registered',
-                '2 minutes ago',
-                Icons.restaurant,
-                Colors.green,
-              ),
-              const Divider(),
-              _buildActivityItem(
-                'User feedback received from John Doe',
-                '15 minutes ago',
-                Icons.feedback,
-                Colors.orange,
-              ),
-              const Divider(),
-              _buildActivityItem(
-                'System backup completed successfully',
-                '1 hour ago',
-                Icons.backup,
-                Colors.blue,
-              ),
-            ],
-          ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          if (_commonRestrictions.isEmpty)
+            const Text('No data available.', style: TextStyle(color: Colors.grey)),
+          ..._commonRestrictions.entries.map((e) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber, color: Colors.red, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${e.key[0].toUpperCase()}${e.key.substring(1)}',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                    ),
+                    const Spacer(),
+                    Text(
+                      e.value.toString(),
+                      style: const TextStyle(fontSize: 14, color: Colors.black54),
+                    ),
+                  ],
+                ),
+              )),
+        ],
+      ),
     );
   }
 
-  Widget _buildActivityItem(String title, String time, IconData icon, Color iconColor) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+  Widget _buildTotalFavouritesCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              icon,
-              color: iconColor,
-              size: 20,
+          Icon(Icons.favorite, color: Colors.pink, size: 28),
+          const SizedBox(width: 16),
+          const Text(
+            'Total Favourites Added',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black87,
-                  ),
-                ),
-                Text(
-                  time,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
+          const Spacer(),
+          Text(
+            _totalFavourites.toString(),
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Colors.black54,
             ),
           ),
         ],
       ),
     );
   }
+
+  // Widget _buildRecentActivitySection() {
+  //   return Column(
+  //     crossAxisAlignment: CrossAxisAlignment.start,
+  //     children: [
+  //       const Text(
+  //         'Recent Activity',
+  //         style: TextStyle(
+  //           fontSize: 20,
+  //           fontWeight: FontWeight.bold,
+  //           color: Colors.black87,
+  //         ),
+  //       ),
+  //       const SizedBox(height: 16),
+  //       Container(
+  //         padding: const EdgeInsets.all(20),
+  //         decoration: BoxDecoration(
+  //           color: Colors.white,
+  //           borderRadius: BorderRadius.circular(16),
+  //           boxShadow: [
+  //             BoxShadow(
+  //               color: Colors.black.withOpacity(0.05),
+  //               blurRadius: 10,
+  //               offset: const Offset(0, 2),
+  //             ),
+  //           ],
+  //         ),
+  //         child: Column(
+  //           children: [
+  //             _buildActivityItem(
+  //               'New restaurant "Pizza Palace" registered',
+  //               '2 minutes ago',
+  //               Icons.restaurant,
+  //               Colors.green,
+  //             ),
+  //             const Divider(),
+  //             _buildActivityItem(
+  //               'User feedback received from John Doe',
+  //               '15 minutes ago',
+  //               Icons.feedback,
+  //               Colors.orange,
+  //             ),
+  //             const Divider(),
+  //             _buildActivityItem(
+  //               'System backup completed successfully',
+  //               '1 hour ago',
+  //               Icons.backup,
+  //               Colors.blue,
+  //             ),
+  //           ],
+  //         ),
+  //       ),
+  //     ],
+  //   );
+  // }
+
+  // Widget _buildActivityItem(String title, String time, IconData icon, Color iconColor) {
+  //   return Padding(
+  //     padding: const EdgeInsets.symmetric(vertical: 8),
+  //     child: Row(
+  //       children: [
+  //         Container(
+  //           padding: const EdgeInsets.all(8),
+  //           decoration: BoxDecoration(
+  //             color: iconColor.withOpacity(0.1),
+  //             borderRadius: BorderRadius.circular(8),
+  //           ),
+  //           child: Icon(
+  //             icon,
+  //             color: iconColor,
+  //             size: 20,
+  //           ),
+  //         ),
+  //         const SizedBox(width: 12),
+  //         Expanded(
+  //           child: Column(
+  //             crossAxisAlignment: CrossAxisAlignment.start,
+  //             children: [
+  //               Text(
+  //                 title,
+  //                 style: const TextStyle(
+  //                   fontSize: 14,
+  //                   fontWeight: FontWeight.w500,
+  //                   color: Colors.black87,
+  //                 ),
+  //               ),
+  //               Text(
+  //                 time,
+  //                 style: TextStyle(
+  //                   fontSize: 12,
+  //                   color: Colors.grey[600],
+  //                 ),
+  //               ),
+  //             ],
+  //           ),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 
   Widget _buildAdminBottomNavigation() {
     return Container(
@@ -774,6 +876,62 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
       ),
       onPressed: onTap,
     );
+  }
+
+  Future<int> getTotalUsers() async {
+    final snapshot = await FirebaseFirestore.instance.collection('users').get();
+    return snapshot.size;
+  }
+
+  Future<int> getTotalAdmins() async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .where('isAdmin', isEqualTo: true)
+        .get();
+    return snapshot.size;
+  }
+
+  Future<int> getTotalFeedback() async {
+    final snapshot = await FirebaseFirestore.instance.collection('feedback').get();
+    return snapshot.size;
+  }
+
+  Future<Map<String, int>> getMostPopularPreferences({int topN = 5}) async {
+    final snapshot = await FirebaseFirestore.instance.collection('users').get();
+    final Map<String, int> counts = {};
+    for (var doc in snapshot.docs) {
+      final prefs = List<String>.from(doc.data()['preferences'] ?? []);
+      for (var pref in prefs) {
+        counts[pref] = (counts[pref] ?? 0) + 1;
+      }
+    }
+    final sorted = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return Map.fromEntries(sorted.take(topN));
+  }
+
+  Future<Map<String, int>> getMostCommonRestrictions({int topN = 5}) async {
+    final snapshot = await FirebaseFirestore.instance.collection('users').get();
+    final Map<String, int> counts = {};
+    for (var doc in snapshot.docs) {
+      final restrictions = List<String>.from(doc.data()['restrictions'] ?? []);
+      for (var r in restrictions) {
+        counts[r] = (counts[r] ?? 0) + 1;
+      }
+    }
+    final sorted = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return Map.fromEntries(sorted.take(topN));
+  }
+
+  Future<int> getTotalFavouritesAdded() async {
+    final snapshot = await FirebaseFirestore.instance.collection('users').get();
+    int total = 0;
+    for (var doc in snapshot.docs) {
+      final favs = List.from(doc.data()['favourites'] ?? []);
+      total += favs.length;
+    }
+    return total;
   }
 }
 
