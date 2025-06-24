@@ -25,8 +25,11 @@ SECRET_KEY = 'x2!t%bl9lcp)psf*z@mdv(0d*1w8r8wb6o#p!xxp1tu4!+qf)i'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['192.168.0.4', 'localhost', '127.0.0.1']  # Added your IP address
-
+ALLOWED_HOSTS = [
+    "degree-y3-fyp-restaurant-recommendation.onrender.com",
+    "localhost",
+    "127.0.0.1",
+]
 
 # Application definition
 
