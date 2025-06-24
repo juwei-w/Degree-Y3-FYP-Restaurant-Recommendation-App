@@ -1,14 +1,26 @@
-import 'dart:convert';
-import 'package:flutter/services.dart';
+import 'dart:async';
+import 'dart:developer';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../services/location_service.dart';
+import '../services/restaurant_data_service.dart'; // Import the new service
 import 'feedback_screen.dart';
 import 'favourites_screen.dart';
 import 'profile_screen.dart';
 import 'welcome_screen.dart';
 import 'recommend_screen.dart';
 import 'view_restaurant_screen.dart';
+import '../widgets/loading_dialog.dart';
 
-const String YOUR_GOOGLE_MAPS_API_KEY = 'AIzaSyAJBoC-T_nA4fjpVR3ObZ-Dss1PFONcg_w';
+final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
+
+class RestaurantCache {
+  static List<Map<String, dynamic>> restaurants = [];
+  static Map<String, dynamic>? lastLoadedAddress;
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,46 +29,360 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  final DraggableScrollableController _dragController = DraggableScrollableController();
-  double _dragPosition = 0.5; // Half screen initially
-  
+class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin {
+  String _userName = 'User Name';
+  String _userEmail = 'user@email.com';
+
+  final DraggableScrollableController _dragController =
+      DraggableScrollableController();
+  double _dragPosition = 0.5;
+
   List<Map<String, dynamic>> restaurants = [];
 
   bool _showAddressDropdown = false;
-  final List<String> _addresses = [
-    '4102 Pretty View Lane',
-    '123 Main Street',
-    '88 Jalan Bestari',
-    'No. 5, Jalan Mawar',
-  ];
-  String _selectedAddress = '4102 Pretty View Lane';
+  List<Map<String, dynamic>> _addresses = []; // Changed to List of Maps
+  Map<String, dynamic>? _selectedAddress; // Changed to a Map object
+  Map<String, dynamic>? _lastLoadedAddress;
 
-  // Add this to your _HomeScreenState:
-  Set<String> favouriteRestaurantIds = {}; // Use a unique field, e.g., name or place_id
+  final LocationService _locationService = LocationService();
+
+  // Fetch user's favourites from Firestore (e.g., in initState or with a FutureBuilder)
+  List<dynamic> userFavourites = []; // This will be a list of restaurant objects
+
+  GoogleMapController? _mapController;
+
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> filteredRestaurants = [];
 
   @override
   void initState() {
     super.initState();
+    log('HomeScreen initState called');
     _dragController.addListener(() {
-      setState(() {
-        _dragPosition = _dragController.size;
-      });
+      if (_dragPosition != _dragController.size) {
+        setState(() {
+          _dragPosition = _dragController.size;
+        });
+      }
     });
-    _loadRestaurantData();
+
+    // Restore from cache if available
+    restaurants = RestaurantCache.restaurants;
+    _lastLoadedAddress = RestaurantCache.lastLoadedAddress;
+
+    _initializeData();
+
+    _searchController.addListener(() {
+      _filterRestaurants(_searchController.text);
+    });
+  }
+
+  Future<void> _initializeData() async {
+    // Fetch user data, which now also determines the selected address from Firestore
+    await _fetchUserInfo();
+
+    // If no address was marked as 'selected' in the database, default to current location
+    if (_selectedAddress == null) {
+      await _getCurrentUserLocation();
+    }
+
+    // Set _lastLoadedAddress if not set yet
+    if (_selectedAddress != null && _lastLoadedAddress == null) {
+      _lastLoadedAddress = Map<String, dynamic>.from(_selectedAddress!);
+      log('[_initializeData] Set _lastLoadedAddress: $_lastLoadedAddress');
+    }
+
+    // Load restaurant data after the location has been finalized
+    await _loadRestaurantData();
+
+    // Zoom to the selected location on first run
+    _moveMapToSelectedAddress();
+  }
+
+  Future<void> _getCurrentUserLocation() async {
+    log('Attempting to get current location...');
+    try {
+      final position = await _locationService.getCurrentLocation();
+      final address = await _locationService.getAddressFromLatLng(position);
+      if (mounted) {
+        setState(() {
+          _selectedAddress = {
+            'label': 'Current Location',
+            'address': address,
+            'latitude': position.latitude,
+            'longitude': position.longitude,
+            'isSelected': true,
+          };
+        });
+        log('Got current location: $position');
+        _moveMapToSelectedAddress();
+      }
+    } catch (e) {
+      log('Failed to get current location: $e');
+      if (mounted) {
+        setState(() {
+          _selectedAddress = {
+            'label': 'Could not get location',
+            'address': 'Please check permissions and try again.',
+            'latitude': 0.0,
+            'longitude': 0.0,
+            'isSelected': true,
+          };
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchUserInfo() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      String name = 'User Name';
+      List<Map<String, dynamic>> userSavedAddresses = [];
+      List<dynamic> favourites = [];
+
+      try {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+        if (userDoc.exists) {
+          final userData = userDoc.data() as Map<String, dynamic>;
+          name = userData['name'] ?? user.displayName ?? 'User Name';
+
+          if (userData['address'] != null && userData['address'] is List) {
+            userSavedAddresses = List<Map<String, dynamic>>.from(
+                userData['address']
+                    .map((item) => Map<String, dynamic>.from(item)));
+          }
+
+          if (userData['favourites'] != null &&
+              userData['favourites'] is List) {
+            favourites = userData['favourites'];
+          }
+        }
+      } catch (_) {
+        name = user.displayName ?? 'User Name';
+      }
+      if (mounted) {
+        setState(() {
+          _userName = name;
+          _userEmail = user.email ?? 'user@email.com';
+          userFavourites = favourites;
+          _addresses = userSavedAddresses;
+
+          // Find the selected address from the list fetched from Firestore
+          final selected = _addresses.firstWhere(
+            (addr) => addr['isSelected'] == true,
+            orElse: () => <String, dynamic>{},
+          );
+
+          if (selected.isNotEmpty) {
+            _selectedAddress = selected;
+          } else {
+            _selectedAddress =
+                null; // Explicitly null if none is selected in DB
+          }
+        });
+
+        bool _isSameLocation(Map<String, dynamic> a, Map<String, dynamic> b, {double tolerance = 0.0001}) {
+          return (a['latitude'] - b['latitude']).abs() < tolerance &&
+                (a['longitude'] - b['longitude']).abs() < tolerance;
+        }
+
+        log('[_fetchUserInfo] _selectedAddress: $_selectedAddress');
+        log('[_fetchUserInfo] _lastLoadedAddress: $_lastLoadedAddress');
+
+        if (_selectedAddress != null && _lastLoadedAddress != null) {
+          log('[_fetchUserInfo] Checking if locations are the same...');
+          if (_isSameLocation(_selectedAddress!, _lastLoadedAddress!)) {
+            log('[_fetchUserInfo] Location unchanged, using cached restaurants.');
+            setState(() {
+              restaurants = RestaurantDataService.instance.getRestaurants();
+            });
+          } else {
+            log('[_fetchUserInfo] Location changed, fetching new restaurants.');
+            await _loadRestaurantData();
+          }
+        } else {
+          log('[_fetchUserInfo] One or both addresses are null, fetching restaurants.');
+          await _loadRestaurantData();
+        }
+      }
+    }
   }
 
   Future<void> _loadRestaurantData() async {
-    final String jsonString = await rootBundle.loadString('assets/restaurant_data/restaurant_data_1.json');
-    final List<dynamic> jsonData = json.decode(jsonString);
-    setState(() {
-      restaurants = jsonData
-        .where((item) => item is Map<String, dynamic> && item['name'] != null)
-        .map<Map<String, dynamic>>((item) => item as Map<String, dynamic>)
-        .toList();
-    });
+    if (_selectedAddress == null) {
+      log('[_loadRestaurantData] _selectedAddress is null, aborting.');
+      return;
+    }
+
+    if (_lastLoadedAddress != null) {
+      log('[_loadRestaurantData] _lastLoadedAddress: $_lastLoadedAddress');
+      log('[_loadRestaurantData] _selectedAddress: $_selectedAddress');
+    }
+
+    // Prevent refetch if address hasn't changed
+    bool _isSameLocation(Map<String, dynamic> a, Map<String, dynamic> b, {double tolerance = 0.0001}) {
+      return (a['latitude'] - b['latitude']).abs() < tolerance &&
+            (a['longitude'] - b['longitude']).abs() < tolerance;
+    }
+
+    if (_lastLoadedAddress != null && _isSameLocation(_selectedAddress!, _lastLoadedAddress!)) {
+      log('[_loadRestaurantData] Address unchanged, skipping restaurant fetch.');
+      return;
+    }
+
+    showLoadingDialog(context, message: "Fetching restaurants...");
+    try {
+      log('[_loadRestaurantData] Fetching restaurants for: ${_selectedAddress!['latitude']}, ${_selectedAddress!['longitude']}');
+      await RestaurantDataService.instance.loadRestaurants(
+        latitude: _selectedAddress!['latitude'],
+        longitude: _selectedAddress!['longitude'],
+      );
+      if (mounted) {
+        setState(() {
+          restaurants = RestaurantDataService.instance.getRestaurants();
+          filteredRestaurants = List<Map<String, dynamic>>.from(restaurants);
+          _lastLoadedAddress = Map<String, dynamic>.from(_selectedAddress!);
+
+          // Save to cache
+          RestaurantCache.restaurants = restaurants;
+          RestaurantCache.lastLoadedAddress = _lastLoadedAddress;
+
+          log('[_loadRestaurantData] Updated _lastLoadedAddress: $_lastLoadedAddress');
+        });
+      }
+    } finally {
+      hideLoadingDialog(context);
+    }
   }
 
+  /// Central method to update the address selection state in Firestore.
+  Future<void> _updateAddressSelectionInDb({
+    Map<String, dynamic>? newSelectedAddress,
+    bool skipLoadRestaurants = false,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+    // Update addresses
+    final updatedAddresses = _addresses.map((addr) {
+      final isSelected = (newSelectedAddress != null) &&
+          (addr['address'] == newSelectedAddress['address']);
+      return {...addr, 'isSelected': isSelected};
+    }).toList();
+
+    await userDocRef.update({'address': updatedAddresses});
+    await _fetchUserInfo();
+
+    // Only load restaurants if not skipping (i.e., not for current location)
+    if (!skipLoadRestaurants) {
+      await _loadRestaurantData();
+    }
+    // Move map to the new selected address
+    _moveMapToSelectedAddress();
+  }
+
+  Future<void> _saveNewAddress(Map<String, dynamic> newAddressData) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDocRef =
+        FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+    // Make all existing addresses not selected
+    final unselectedAddresses =
+        _addresses.map((addr) => {...addr, 'isSelected': false}).toList();
+
+    // Add the new address and mark it as selected
+    final newAddressWithSelection = {...newAddressData, 'isSelected': true};
+    final updatedList = [...unselectedAddresses, newAddressWithSelection];
+
+    await userDocRef.update({'address': updatedList});
+    await _fetchUserInfo(); // Refresh UI, which will set the new address as selected
+  }
+
+  Future<void> _updateAddress(Map<String, dynamic> oldAddressData,
+      Map<String, dynamic> newAddressData) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDocRef =
+        FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+    // Create a new list where the updated address is selected and all others are not.
+    final updatedAddresses = _addresses.map((addr) {
+      // If this is the address we are updating, replace it and mark as selected.
+      if (addr['address'] == oldAddressData['address']) {
+        return {...newAddressData, 'isSelected': true};
+      }
+      // Otherwise, ensure it's not selected.
+      return {...addr, 'isSelected': false};
+    }).toList();
+
+    await userDocRef.update({'address': updatedAddresses});
+    await _fetchUserInfo(); // Refresh UI
+  }
+
+  Future<void> _deleteAddress(Map<String, dynamic> addressToDelete) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDocRef =
+        FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+    // Remove the address from the list
+    final remainingAddresses = _addresses
+        .where((addr) => addr['address'] != addressToDelete['address'])
+        .toList();
+
+    await userDocRef.update({'address': remainingAddresses});
+    await _fetchUserInfo(); // Refresh UI
+
+    // After fetching, if no address is selected, get current location.
+    if (_selectedAddress == null) {
+      await _getCurrentUserLocation();
+    }
+  }
+
+  // To check if a restaurant is a favourite:
+  bool isFavourite(String placeId) {
+    return userFavourites.any((restaurant) => restaurant['place_id'] == placeId);
+  }
+
+  // When the favourite button is pressed:
+  Future<void> toggleFavourite(Map<String, dynamic> restaurant) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final userDoc = FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+    // Use the full restaurant map for favourites
+    final placeId = restaurant['place_id'];
+    final isFavourite = userFavourites.any((fav) => fav['place_id'] == placeId);
+
+    if (isFavourite) {
+      await userDoc.set({
+        'favourites': FieldValue.arrayRemove([
+          // Remove by matching the full object structure
+          userFavourites.firstWhere((fav) => fav['place_id'] == placeId)
+        ])
+      }, SetOptions(merge: true));
+      setState(() {
+        userFavourites.removeWhere((fav) => fav['place_id'] == placeId);
+      });
+    } else {
+      await userDoc.set({
+        'favourites': FieldValue.arrayUnion([restaurant])
+      }, SetOptions(merge: true));
+      setState(() {
+        userFavourites.add(restaurant);
+      });
+    }
+  }
+  
   @override
   void dispose() {
     _dragController.dispose();
@@ -64,7 +390,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context); // <-- Important for keep-alive
     return Scaffold(
       backgroundColor: Colors.white,
       // App drawer (side menu)
@@ -117,6 +447,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: IconButton(
                         icon: const Icon(Icons.menu),
                         onPressed: () {
+                          _fetchUserInfo();
                           Scaffold.of(context).openDrawer();
                         },
                       ),
@@ -124,55 +455,51 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   // Location dropdown (centered)
                   Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        GestureDetector(
-                          onTap: _showAddressSelector,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Column(
-                                children: [
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Text(
-                                        'Location',
-                                        style: TextStyle(
-                                          fontFamily: 'SofiaSans',
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      const Icon(
-                                        Icons.keyboard_arrow_down_rounded, // visually thicker
-                                        color: Colors.grey,
-                                        size: 17,
-                                        // fontWeight: FontWeight.bold,
-                                      ),
-                                    ],
+                    child: GestureDetector(
+                      onTap: _showAddressSelector,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                        alignment: Alignment.center,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  'Location',
+                                  style: TextStyle(
+                                    fontFamily: 'SofiaSans',
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey,
                                   ),
-                                  Text(
-                                    _selectedAddress,
-                                    style: const TextStyle(
-                                      fontFamily: 'SofiaSans',
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFFFF7F59),
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ],
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.keyboard_arrow_down_rounded, // visually thicker
+                                  color: Colors.grey,
+                                  size: 17,
+                                ),
+                              ],
+                            ),
+                            Text(
+                              _selectedAddress?['label'] ??
+                                  _selectedAddress?['address'] ??
+                                  'Fetching location...',
+                              style: const TextStyle(
+                                fontFamily: 'SofiaSans',
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFFF7F59),
                               ),
-                            ],
-                          ),
+                              textAlign: TextAlign.center,
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                   // Profile picture
@@ -254,7 +581,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        address,
+                                        address['label'] ?? address['address'],
                                         style: TextStyle(
                                           fontFamily: 'SofiaSans',
                                           fontSize: 14,
@@ -318,34 +645,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 16),
                   
                   // User name and email
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Farion Wick',
-                            style: TextStyle(
-                              fontFamily: 'SofiaSans',
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            'farionwick@gmail.com',
-                            style: TextStyle(
-                              fontFamily: 'SofiaSans',
-                              fontSize: 14,
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        ],
+                      Text(
+                        _userName,
+                        style: const TextStyle(
+                          fontFamily: 'SofiaSans',
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                      const SizedBox(width: 8),
-                      const Icon(
-                        Icons.keyboard_arrow_down,
-                        color: Colors.grey,
+                      Text(
+                        _userEmail,
+                        style: TextStyle(
+                          fontFamily: 'SofiaSans',
+                          fontSize: 14,
+                          color: Colors.grey[500],
+                        ),
                       ),
                     ],
                   ),
@@ -436,12 +753,46 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildMapImage() {
+    // Default to Cyberjaya if no address is selected
+    final double lat = _selectedAddress?['latitude'] ?? 2.9222396;
+    final double lng = _selectedAddress?['longitude'] ?? 101.636466;
+
+    final Set<Marker> restaurantMarkers = restaurants
+        .where((r) => r['latitude'] != null && r['longitude'] != null)
+        .map((r) => Marker(
+              markerId: MarkerId(r['place_id'] ?? r['name'] ?? ''),
+              position: LatLng(r['latitude'], r['longitude']),
+              infoWindow: InfoWindow(title: r['name']),
+            ))
+        .toSet();
+
+    // Add the selected location marker only if _selectedAddress is not null
+    if (_selectedAddress != null) {
+      restaurantMarkers.add(
+        Marker(
+          markerId: const MarkerId('selected_location'),
+          position: LatLng(_selectedAddress!['latitude'], _selectedAddress!['longitude']),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        ),
+      );
+    }
+
     return SizedBox(
       width: double.infinity,
       height: double.infinity,
-      child: Image.asset(
-        'assets/images/map.png',
-        fit: BoxFit.cover,
+      child: GoogleMap(
+        initialCameraPosition: CameraPosition(
+          target: LatLng(lat, lng),
+          zoom: 14,
+        ),
+        myLocationEnabled: true,
+        myLocationButtonEnabled: true,
+        zoomControlsEnabled: false,
+        mapType: MapType.normal,
+        markers: restaurantMarkers,
+        onMapCreated: (controller) {
+          _mapController = controller;
+        },
       ),
     );
   }
@@ -510,10 +861,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-                
-                // Search bar
+                // Search bar (moved outside scrollable area, always visible)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                  padding: EdgeInsets.only(
+                    left: 16.0,
+                    right: 16.0,
+                    top: 4.0,
+                    bottom: 8.0, // fixed bottom padding
+                  ),
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.grey[100],
@@ -527,6 +882,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         Expanded(
                           child: TextField(
+                            controller: _searchController,
                             decoration: const InputDecoration(
                               hintText: 'Find for food or restaurant...',
                               hintStyle: TextStyle(
@@ -534,7 +890,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                 color: Colors.grey,
                               ),
                               border: InputBorder.none,
+                              focusedBorder: InputBorder.none, // Remove orange border when active
+                              enabledBorder: InputBorder.none, // Remove border when enabled
                             ),
+                            onChanged: (value) {
+                              setState(() {
+                                filteredRestaurants = restaurants.where((restaurant) {
+                                  final restaurantName = restaurant['name']?.toLowerCase() ?? '';
+                                  final searchTerm = value.toLowerCase();
+                                  return restaurantName.contains(searchTerm);
+                                }).toList();
+                              });
+                            },
                           ),
                         ),
                         Container(
@@ -554,7 +921,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-                
                 // Nearby Restaurants header
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -605,10 +971,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   child: ListView.builder(
                     controller: scrollController,
-                    padding: const EdgeInsets.only(bottom: 80), // Add bottom padding so last card is visible above nav bar
-                    itemCount: restaurants.length,
+                    // Only add bottom padding for nav bar (not keyboard) since search bar is now always visible
+                    padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(context).padding.bottom + 80,
+                    ),
+                    itemCount: filteredRestaurants.length,
                     itemBuilder: (context, index) {
-                      final restaurant = restaurants[index];
+                      final restaurant = filteredRestaurants[index];
                       return _buildRestaurantCard(restaurant);
                     },
                   ),
@@ -623,194 +992,222 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildRestaurantCard(Map<String, dynamic> restaurant) {
     String? photoUrl;
-    if (restaurant['photo_references'] != null &&
-        restaurant['photo_references'] is List &&
-        (restaurant['photo_references'] as List).isNotEmpty) {
-      final photoRef = restaurant['photo_references'][0];
+    if (restaurant['photos'] != null &&
+        restaurant['photos'] is List &&
+        (restaurant['photos'] as List).isNotEmpty) {
+      final photoRef = restaurant['photos'][0];
       photoUrl =
-          'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=$photoRef&key=$YOUR_GOOGLE_MAPS_API_KEY';
+          'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=$photoRef&key=$apiKey';
     }
 
     final String restaurantId = restaurant['place_id'] ?? restaurant['name'] ?? '';
-    final isFavourite = favouriteRestaurantIds.contains(restaurantId);
+    final isFavourite = userFavourites.any((fav) => fav['place_id'] == restaurantId);
+
+    // Opening status logic
+    String openingStatusText = '';
+    Color openingStatusIconColor = Colors.grey;
+    if (restaurant.containsKey('opening_status')) {
+      if (restaurant['opening_status'] == true) {
+        openingStatusText = 'Open';
+        openingStatusIconColor = Colors.green; // Updated color
+      } else if (restaurant['opening_status'] == false) {
+        openingStatusText = 'Closed';
+        openingStatusIconColor = Colors.red.shade300; // Updated color to light red
+      }
+    }
 
     return GestureDetector(
-      onTap: () { _navigateToViewRestaurant(context, restaurant); },
-      child: Card(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        elevation: 4,
+      onTap: () => _navigateToViewRestaurant(context, restaurant),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Restaurant image
             Stack(
               children: [
                 ClipRRect(
                   borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(20),
-                    topRight: Radius.circular(20),
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
                   ),
                   child: photoUrl != null
                       ? Image.network(
                           photoUrl,
-                          height: 140,
+                          height: 150,
                           width: double.infinity,
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) =>
-                              Image.asset('assets/images/profile.png', height: 140, width: double.infinity, fit: BoxFit.cover),
+                              Image.asset('assets/images/tacos.png', height: 150, width: double.infinity, fit: BoxFit.cover),
                         )
-                      : Image.asset('assets/images/profile.png', height: 140, width: double.infinity, fit: BoxFit.cover),
+                      : Image.asset('assets/images/tacos.png', height: 150, width: double.infinity, fit: BoxFit.cover),
                 ),
-                // Rating badge (top left)
+                // Rating badge
                 Positioned(
-                  top: 12,
-                  left: 12,
+                  top: 10,
+                  left: 10,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.85),
-                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
                       children: [
+                        const Icon(
+                          Icons.star,
+                          color: Colors.amber,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
                         Text(
-                          restaurant['rating'] != null ? '${restaurant['rating']}' : '-',
+                          '${restaurant['rating'] ?? '-'}',
                           style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: Colors.black,
                             fontFamily: 'SofiaSans',
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
                           ),
                         ),
-                        const SizedBox(width: 2),
-                        const Icon(Icons.star, color: Colors.amber, size: 16),
-                        if (restaurant['number_of_ratings'] != null)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 4.0),
-                            child: Text(
-                              '(${restaurant['number_of_ratings']})',
-                              style: const TextStyle(
-                                color: Colors.grey,
-                                fontSize: 12,
-                                fontFamily: 'SofiaSans',
-                              ),
-                            ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '(${restaurant['user_ratings_total'] ?? '-'})',
+                          style: TextStyle(
+                            fontFamily: 'SofiaSans',
+                            fontSize: 10,
+                            color: Colors.grey[600],
                           ),
+                        ),
                       ],
                     ),
                   ),
                 ),
-                // Favourite button (top right)
+                // Favourite button
                 Positioned(
-                  top: 12,
-                  right: 12,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: () {
-                        setState(() {
-                          if (isFavourite) {
-                            favouriteRestaurantIds.remove(restaurantId);
-                          } else {
-                            favouriteRestaurantIds.add(restaurantId);
-                          }
-                        });
-                      },
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black12,
-                              blurRadius: 4,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.all(8),
-                        child: Icon(
-                          isFavourite ? Icons.favorite : Icons.favorite_border,
-                          color: isFavourite ? Color(0xFFFF7F59) : Colors.grey[400],
-                          size: 24,
-                        ),
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: Icon(
+                        isFavourite ? Icons.favorite : Icons.favorite_border,
+                        color: const Color(0xFFFF7F59),
                       ),
+                      iconSize: 20,
+                      constraints: const BoxConstraints(
+                        minWidth: 30,
+                        minHeight: 30,
+                      ),
+                      padding: EdgeInsets.zero,
+                      onPressed: () async {
+                        await toggleFavourite(restaurant);
+                      },
                     ),
                   ),
                 ),
               ],
             ),
+            // Restaurant info
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              padding: const EdgeInsets.all(12.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Restaurant name and verified icon
+                  // Name and verified badge
                   Row(
                     children: [
                       Expanded(
                         child: Text(
                           restaurant['name'] ?? 'Unknown',
                           style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
                             fontFamily: 'SofiaSans',
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const SizedBox(width: 4),
-                      // Icon(Icons.verified, color: Color(0xFF2DC653), size: 18),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  // Restaurant address/details
-                  if (restaurant['address'] != null)
-                    Text(
-                      restaurant['address'],
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 14,
-                        fontFamily: 'SofiaSans',
-                        fontWeight: FontWeight.w500,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                  const SizedBox(height: 4),
+                  // Opening status
+                  if (openingStatusText.isNotEmpty)
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.access_time_filled,
+                          color: openingStatusIconColor,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          openingStatusText,
+                          style: TextStyle(
+                            fontFamily: 'SofiaSans',
+                            fontSize: 12,
+                            color: openingStatusIconColor,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
-                  const SizedBox(height: 12),
-                  // Categories as chips (styled to match theme)
-                  if (restaurant['categories'] != null && restaurant['categories'] is List)
-                    Wrap(
-                      spacing: 8,
-                      children: (restaurant['categories'] as List).map<Widget>((categoryItem) {
-                          final String categoryText = categoryItem.toString().toUpperCase(); 
-
-                          return Chip(
-                                label: Text(
-                                  categoryText,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontFamily: 'SofiaSans',
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFFFF7F59), // Changed to grey/default color
-                                    letterSpacing: 0.2,
-                                  ),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                              );
-                        }).toList(),
-                    )
+                  const SizedBox(height: 8),
+                  // // Address
+                  // if (restaurant['address'] != null)
+                  //   Text(
+                  //     restaurant['address'],
+                  //     style: TextStyle(
+                  //       fontFamily: 'SofiaSans',
+                  //       fontSize: 12,
+                  //       color: Colors.grey[600],
+                  //     ),
+                  //     maxLines: 2,
+                  //     overflow: TextOverflow.ellipsis,
+                  //   ),
+                  // const SizedBox(height: 8),
+                  // Categories (wrapped)
+                  Wrap(
+                    spacing: 8.0,
+                    runSpacing: 4.0,
+                    children: (restaurant['categories'] as List?)?.map((category) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[200],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              category.toString().toUpperCase(),
+                              style: TextStyle(
+                                fontFamily: 'SofiaSans',
+                                fontSize: 10,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                          );
+                        }).toList() ??
+                        [],
+                  ),
                 ],
               ),
             ),
           ],
         ),
-      ),
+      )
     );
   }
 
@@ -880,9 +1277,30 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            // Helper function to select current location
+            void selectCurrentLocation() async {
+              Navigator.pop(context); // Close modal
+
+              showLoadingDialog(context, message: "Updating location...");
+              try {
+                await _updateAddressSelectionInDb(newSelectedAddress: null, skipLoadRestaurants: true);
+                await _getCurrentUserLocation();
+                await _loadRestaurantData();
+              } finally {
+                hideLoadingDialog(context);
+              }
+            }
+
+            // Determine if 'Current Location' is the active selection
+            final isCurrentLocationSelected =
+                _selectedAddress?['label'] == 'Current Location' ||
+                    _addresses.every((addr) => addr['isSelected'] != true);
+
             return Container(
+              constraints: const BoxConstraints(minWidth: 500),
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-              padding: const EdgeInsets.only(top: 16, left: 0, right: 0, bottom: 8),
+              padding: const EdgeInsets.only(
+                  top: 16, left: 0, right: 0, bottom: 8),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
@@ -911,25 +1329,85 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
+
+                  // "Use Current Location" option
+                  Container(
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isCurrentLocationSelected
+                          ? const Color(0xFFFFF5F2)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: selectCurrentLocation,
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 4, right: 12),
+                            child: Icon(
+                              isCurrentLocationSelected
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_off,
+                              color: isCurrentLocationSelected
+                                  ? const Color(0xFFFF7F59)
+                                  : Colors.grey,
+                              size: 26,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: selectCurrentLocation,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 14, horizontal: 0),
+                              child: Text(
+                                'Use Current Location',
+                                style: TextStyle(
+                                  fontFamily: 'SofiaSans',
+                                  fontSize: 16,
+                                  fontWeight: isCurrentLocationSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isCurrentLocationSelected
+                                      ? const Color(0xFFFF7F59)
+                                      : Colors.black,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(
+                            width: 48), // Placeholder for alignment
+                      ],
+                    ),
+                  ),
+
                   ..._addresses.map((address) {
-                    final isSelected = address == _selectedAddress;
+                    final isSelected = address['isSelected'] ?? false;
+                    final String displayText =
+                        address['label'] ?? address['address'];
                     return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
                       decoration: BoxDecoration(
-                        color: isSelected ? const Color(0xFFFFF5F2) : Colors.transparent,
+                        color: isSelected
+                            ? const Color(0xFFFFF5F2)
+                            : Colors.transparent,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(
                         children: [
-                          // Selection circle (now tappable)
                           InkWell(
                             borderRadius: BorderRadius.circular(20),
                             onTap: () {
-                              setState(() {
-                                _selectedAddress = address;
-                              });
-                              setModalState(() {});
-                              Navigator.pop(context, address);
+                              _updateAddressSelectionInDb(
+                                  newSelectedAddress: address);
+                              Navigator.pop(context);
                             },
                             child: Padding(
                               padding: const EdgeInsets.only(left: 4, right: 12),
@@ -944,25 +1422,25 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                           ),
-                          // Address text
                           Expanded(
                             child: InkWell(
                               borderRadius: BorderRadius.circular(12),
                               onTap: () {
-                                setState(() {
-                                  _selectedAddress = address;
-                                });
-                                setModalState(() {});
-                                Navigator.pop(context, address);
+                                _updateAddressSelectionInDb(
+                                    newSelectedAddress: address);
+                                Navigator.pop(context);
                               },
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 0),
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 14, horizontal: 0),
                                 child: Text(
-                                  address,
+                                  displayText,
                                   style: TextStyle(
                                     fontFamily: 'SofiaSans',
                                     fontSize: 16,
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    fontWeight: isSelected
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
                                     color: isSelected
                                         ? const Color(0xFFFF7F59)
                                         : Colors.black,
@@ -971,64 +1449,14 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                           ),
-                          // Edit icon
                           IconButton(
-                            icon: const Icon(Icons.edit, color: Color(0xFFFF7F59), size: 20),
+                            icon: const Icon(Icons.edit,
+                                color: Color(0xFFFF7F59), size: 20),
                             splashRadius: 20,
                             onPressed: () async {
-                              final controller = TextEditingController(text: address);
-                              final result = await showDialog<Map<String, dynamic>>(
-                                context: context,
-                                builder: (context) {
-                                  return AlertDialog(
-                                    title: const Text('Edit Address'),
-                                    content: TextField(
-                                      controller: controller,
-                                      maxLines: 3,
-                                      decoration: const InputDecoration(
-                                        hintText: 'Edit address',
-                                      ),
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context),
-                                        child: const Text('Cancel'),
-                                      ),
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context, {'delete': true}),
-                                        child: const Text(
-                                          'Delete',
-                                          style: TextStyle(color: Colors.redAccent),
-                                        ),
-                                      ),
-                                      ElevatedButton(
-                                        onPressed: () {
-                                          Navigator.pop(context, {
-                                            'edit': controller.text.trim()
-                                          });
-                                        },
-                                        child: const Text('Save'),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              );
-                              if (result != null && result['edit'] != null && result['edit'].isNotEmpty) {
-                                final idx = _addresses.indexOf(address);
-                                setState(() {
-                                  _addresses[idx] = result['edit'];
-                                  if (_selectedAddress == address) _selectedAddress = result['edit'];
-                                });
-                                setModalState(() {});
-                              } else if (result != null && result['delete'] == true) {
-                                setState(() {
-                                  _addresses.remove(address);
-                                  if (_selectedAddress == address && _addresses.isNotEmpty) {
-                                    _selectedAddress = _addresses.first;
-                                  }
-                                });
-                                setModalState(() {});
-                              }
+                              Navigator.pop(context);
+                              _showAddOrEditAddressDialog(
+                                  existingAddress: address);
                             },
                           ),
                         ],
@@ -1039,41 +1467,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding: const EdgeInsets.only(left: 20, top: 8, bottom: 8),
                     child: TextButton.icon(
                       onPressed: () async {
-                        final newAddress = await showDialog<String>(
-                          context: context,
-                          builder: (context) {
-                            final controller = TextEditingController();
-                            return AlertDialog(
-                              title: const Text('Add New Address'),
-                              content: TextField(
-                                controller: controller,
-                                maxLines: 3,
-                                decoration: const InputDecoration(
-                                  hintText: 'Enter new address',
-                                ),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text('Cancel'),
-                                ),
-                                ElevatedButton(
-                                  onPressed: () {
-                                    Navigator.pop(context, controller.text.trim());
-                                  },
-                                  child: const Text('Add'),
-                                ),
-                              ],
-                            );
-                          },
-                        );
-                        if (newAddress != null && newAddress.isNotEmpty) {
-                          setState(() {
-                            _addresses.add(newAddress);
-                            _selectedAddress = newAddress;
-                          });
-                          setModalState(() {});
-                        }
+                        Navigator.pop(context);
+                        _showAddOrEditAddressDialog();
                       },
                       icon: const Icon(Icons.add, color: Color(0xFFFF7F59)),
                       label: const Text(
@@ -1098,7 +1493,208 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
-    // No need to update _selectedAddress here, it's handled inside the modal now
+  }
+
+  void _showAddOrEditAddressDialog({Map<String, dynamic>? existingAddress}) {
+    final labelController =
+        TextEditingController(text: existingAddress?['label']);
+    final addressController =
+        TextEditingController(text: existingAddress?['address']);
+    final latController = TextEditingController(
+        text: existingAddress?['latitude']?.toString());
+    final lonController = TextEditingController(
+        text: existingAddress?['longitude']?.toString());
+
+    List<Map<String, String>> suggestions = [];
+    bool isLoading = false;
+    Timer? debounce;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void searchAddress(String value) {
+              if (debounce?.isActive ?? false) debounce!.cancel();
+              debounce = Timer(const Duration(milliseconds: 500), () async {
+                if (value.isNotEmpty) {
+                  setDialogState(() => isLoading = true);
+                  final result = await _locationService
+                      .getAutocompleteSuggestions(value, apiKey!);
+                  setDialogState(() {
+                    suggestions = result;
+                    isLoading = false;
+                  });
+                } else {
+                  setDialogState(() => suggestions = []);
+                }
+              });
+            }
+
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16.0),
+              ),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 500),
+                padding: const EdgeInsets.all(20.0),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 20.0),
+                        child: Text(
+                          existingAddress == null
+                              ? 'Add New Address'
+                              : 'Edit Address',
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                      ),
+                      TextField(
+                          controller: labelController,
+                          decoration: const InputDecoration(
+                              labelText: 'Label (e.g., Home, Work)')),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: addressController,
+                        onChanged: searchAddress,
+                        decoration: const InputDecoration(
+                            labelText: 'Search Full Address'),
+                      ),
+                      if (isLoading)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 10),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                      if (suggestions.isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(top: 8),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey.shade300),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: SizedBox(
+                            height: 150,
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: suggestions.length,
+                              separatorBuilder: (context, index) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final suggestion = suggestions[index];
+                                return ListTile(
+                                  title: Text(suggestion['description']!),
+                                  onTap: () async {
+                                    final selectedDescription =
+                                        suggestion['description']!;
+                                    final details = await _locationService
+                                        .getPlaceDetails(
+                                            suggestion['place_id']!, apiKey!);
+                                    if (details != null) {
+                                      setDialogState(() {
+                                        addressController.text =
+                                            selectedDescription;
+                                        latController.text =
+                                            details['latitude'].toString();
+                                        lonController.text =
+                                            details['longitude'].toString();
+                                        suggestions = [];
+                                      });
+                                    }
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                              child: TextField(
+                                  controller: latController,
+                                  decoration: const InputDecoration(
+                                      labelText: 'Latitude'),
+                                  keyboardType: TextInputType.number)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                              child: TextField(
+                                  controller: lonController,
+                                  decoration: const InputDecoration(
+                                      labelText: 'Longitude'),
+                                  keyboardType: TextInputType.number)),
+                        ],
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 20.0),
+                        child: Row(
+                          children: [
+                            if (existingAddress != null)
+                              TextButton(
+                                onPressed: () async {
+                                  Navigator.pop(context);
+                                  await _deleteAddress(existingAddress);
+                                },
+                                child: const Text('Delete',
+                                    style:
+                                        TextStyle(color: Colors.redAccent)),
+                              ),
+                            const Spacer(),
+                            TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('Cancel')),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: () async {
+                                final newAddressData = {
+                                  'label': labelController.text.trim(),
+                                  'address': addressController.text.trim(),
+                                  'latitude': double.tryParse(
+                                          latController.text.trim()) ??
+                                      0.0,
+                                  'longitude': double.tryParse(
+                                          lonController.text.trim()) ??
+                                      0.0,
+                                };
+
+                                if (newAddressData['address'] == '' ||
+                                    newAddressData['latitude'] == 0.0) {
+                                  return;
+                                }
+
+                                if ((newAddressData['label'] as String)
+                                    .isEmpty) {
+                                  newAddressData['label'] =
+                                      newAddressData['address'] as String;
+                                }
+
+                                Navigator.pop(context);
+                                if (existingAddress == null) {
+                                  await _saveNewAddress(newAddressData);
+                                } else {
+                                  await _updateAddress(
+                                      existingAddress, newAddressData);
+                                }
+                              },
+                              child: const Text('Save'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      debounce?.cancel();
+    });
   }
 
   void _navigateToFeedback(BuildContext context) {
@@ -1108,11 +1704,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _navigateToFavourite(BuildContext context) {
-    Navigator.push(
+  void _navigateToFavourite(BuildContext context) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const FavouritesScreen()),
     );
+    // Refresh user data when returning from the favourites screen
+    // _fetchUserInfo();
   }
 
   void _navigateToWelcome(BuildContext context) {
@@ -1123,18 +1721,26 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _navigateToProfile(BuildContext context) {
-    Navigator.push(
+  void _navigateToProfile(BuildContext context) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const ProfileScreen()),
     );
+    // Refresh user data when returning from the profile screen
+    _fetchUserInfo();
   }
 
   void _navigateToRecommend(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const RecommendScreen()),
-    );
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              RecommendScreen(restaurants: restaurants, user: user),
+        ),
+      );
+    }
   }
 
   void _navigateToHome(BuildContext context) {
@@ -1146,15 +1752,55 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _navigateToViewRestaurant(BuildContext context, Map<String, dynamic> restaurant) {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => ViewRestaurantScreen(
-        restaurant: restaurant,
-        isFavourite: favouriteRestaurantIds.contains(restaurant['place_id'] ?? restaurant['name'] ?? ''),
+  void _navigateToViewRestaurant(
+      BuildContext context, Map<String, dynamic> restaurant) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ViewRestaurantScreen(
+          restaurant: restaurant,
+          isFavourite: userFavourites.any(
+            (fav) =>
+                fav['place_id'] ==
+                (restaurant['place_id'] ?? restaurant['name'] ?? ''),
+          ),
+        ),
       ),
-    ),
-  );
-}
+    );
+    // Refresh user data when returning from the view restaurant screen
+    _fetchUserInfo();
+  }
+
+  void _moveMapToSelectedAddress() {
+    if (_mapController != null && _selectedAddress != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLng(
+          LatLng(_selectedAddress!['latitude'], _selectedAddress!['longitude']),
+        ),
+      );
+    }
+  }
+  void showLoadingDialog(BuildContext context, {String? message}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => LoadingDialog(message: message),
+    );
+  }
+
+  void hideLoadingDialog(BuildContext context) {
+    if (Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
+  void _filterRestaurants(String query) {
+    query = query.toLowerCase();
+    setState(() {
+      filteredRestaurants = restaurants.where((restaurant) {
+        final name = restaurant['name']?.toLowerCase() ?? '';
+        return name.contains(query);
+      }).toList();
+    });
+  }
 }

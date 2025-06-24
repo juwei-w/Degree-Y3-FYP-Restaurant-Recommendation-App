@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'review_screen.dart';
+// Add this import to access environment variables for the API key
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ViewRestaurantScreen extends StatefulWidget {
   final Map<String, dynamic> restaurant;
@@ -16,12 +20,122 @@ class ViewRestaurantScreen extends StatefulWidget {
 }
 
 class _ViewRestaurantScreenState extends State<ViewRestaurantScreen> {
-  bool isFavorite = false;
+  late bool isFavorite;
 
   @override
   void initState() {
     super.initState();
-    isFavorite = widget.restaurant['isFavorite'] ?? false;
+    // Initialize the local favorite state from the property passed to the widget
+    isFavorite = widget.isFavourite;
+  }
+
+  /// Toggles the favourite status of the current restaurant in Firestore.
+  Future<void> _toggleFavourite() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDoc = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final restaurantData = widget.restaurant;
+
+    // Use the current state of `isFavorite` to decide which action to take
+    if (isFavorite) {
+      // If the restaurant is currently a favorite, remove it.
+      await userDoc.set({
+        'favourites': FieldValue.arrayRemove([restaurantData])
+      }, SetOptions(merge: true));
+    } else {
+      // If the restaurant is not a favorite, add it.
+      await userDoc.set({
+        'favourites': FieldValue.arrayUnion([restaurantData])
+      }, SetOptions(merge: true));
+    }
+
+    // After the database operation is complete, update the UI.
+    // The `mounted` check ensures setState is not called after the widget is disposed.
+    if (mounted) {
+      setState(() {
+        isFavorite = !isFavorite;
+      });
+    }
+  }
+  
+  // Assume _launchURL is defined in your state class like this:
+  Future<void> _launchURL(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not launch $urlString'),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Launches WhatsApp with the restaurant's phone number.
+  Future<void> _launchWhatsApp() async {
+    final String? phoneNumber = widget.restaurant['phone_number'] as String?;
+
+    // Check for null, empty, or "N/A"
+    if (phoneNumber == null || phoneNumber.isEmpty || phoneNumber.toUpperCase() == 'N/A') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No available phone number'),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
+      }
+      return;
+    }
+
+    String formattedNumber = phoneNumber.replaceAll(RegExp(r'\D'), '');
+    if (formattedNumber.startsWith('0')) {
+      formattedNumber = '60${formattedNumber.substring(1)}';
+    }
+
+    final String whatsappUrl = 'https://wa.me/$formattedNumber';
+    final String telUrl = 'tel:$phoneNumber';
+
+    try {
+      final Uri waUri = Uri.parse(whatsappUrl);
+      if (await canLaunchUrl(waUri)) {
+        final bool launched = await launchUrl(waUri);
+        if (!launched) {
+          // WhatsApp not available, fallback to phone call
+          final Uri telUri = Uri.parse(telUrl);
+          await launchUrl(telUri);
+        }
+      } else {
+        // WhatsApp not available, fallback to phone call
+        final Uri telUri = Uri.parse(telUrl);
+        await launchUrl(telUri);
+      }
+    } catch (e) {
+      // On any error, fallback to phone call
+      final Uri telUri = Uri.parse(telUrl);
+      await launchUrl(telUri);
+    }
+  }
+
+  // Add this helper to your state class:
+  Future<void> _launchPhoneIfAvailable(String? phoneNumber) async {
+    if (phoneNumber == null || phoneNumber.isEmpty || phoneNumber.toUpperCase() == 'N/A') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No available phone number'),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
+      }
+      return;
+    }
+    await _launchURL('tel:$phoneNumber');
   }
 
   @override
@@ -53,13 +167,16 @@ class _ViewRestaurantScreenState extends State<ViewRestaurantScreen> {
                       color: Colors.black,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 4),
+                  // Opening status widget ---
+                  _buildOpeningStatus(),
+                  const SizedBox(height: 4),
                   // Rating and reviews
                   _buildRatingSection(),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 4),
                   // Price level section
                   _buildPriceLevelSection(widget.restaurant),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   // Category tags
                   _buildCategoryTags(),
                   const SizedBox(height: 20),
@@ -79,21 +196,70 @@ class _ViewRestaurantScreenState extends State<ViewRestaurantScreen> {
   }
 
   Widget _buildImageHeader() {
+    String? photoUrl;
+    // Get the Google Maps API key from your environment variables.
+    final String? apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
+
+    // This logic now matches the working implementation from your home screen.
+    // It checks for a list of photo references from the backend.
+    if (widget.restaurant['photos'] != null &&
+        widget.restaurant['photos'] is List &&
+        (widget.restaurant['photos'] as List).isNotEmpty) {
+      
+      // Get the photo reference string from the first item in the list.
+      final photoRef = widget.restaurant['photos'][0];
+
+      // Construct the full Google Maps Photo API URL if we have a reference and a key.
+      if (photoRef != null && apiKey != null) {
+        photoUrl =
+            'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=$photoRef&key=$apiKey';
+      }
+    }
+    
+    // Define the fallback local image asset.
+    final String fallbackImageAsset = 'assets/images/tacos.png';
+
     return Stack(
       children: [
         // Restaurant image
-        Container(
-          height: 200,
-          width: double.infinity,
-          decoration: BoxDecoration(
+        ClipRRect(
           borderRadius: BorderRadius.circular(20),
-            image: DecorationImage(
-              image: AssetImage(widget.restaurant['image'] ?? 'assets/images/tacos.png'),
-              fit: BoxFit.cover,
-            ),
+          child: Container(
+            height: 200,
+            width: double.infinity,
+            color: Colors.grey[200], // Background color while loading
+            child: (photoUrl != null)
+                // If a photo URL was successfully constructed, display it from the network.
+                ? Image.network(
+                    photoUrl,
+                    fit: BoxFit.cover,
+                    height: 200,
+                    width: double.infinity,
+                    // Show a loading indicator while the image is downloading.
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const Center(child: CircularProgressIndicator());
+                    },
+                    // If the network image fails to load, show the fallback asset.
+                    errorBuilder: (context, error, stackTrace) {
+                      return Image.asset(
+                        fallbackImageAsset,
+                        fit: BoxFit.cover,
+                        height: 200,
+                        width: double.infinity,
+                      );
+                    },
+                  )
+                // If no photo URL could be constructed, display the fallback local asset directly.
+                : Image.asset(
+                    fallbackImageAsset,
+                    fit: BoxFit.cover,
+                    height: 200,
+                    width: double.infinity,
+                  ),
           ),
         ),
-        
+
         // Back button
         Positioned(
           top: 16,
@@ -120,22 +286,85 @@ class _ViewRestaurantScreenState extends State<ViewRestaurantScreen> {
     );
   }
 
+  Widget _buildOpeningStatus() {
+    String openingStatusText = '';
+    Color openingStatusIconColor = Colors.grey;
+    bool statusAvailable = false;
+
+    // Check for 'opening_status' key and its value, as per home page logic
+    if (widget.restaurant.containsKey('opening_status') &&
+        widget.restaurant['opening_status'] is bool) {
+      statusAvailable = true;
+      if (widget.restaurant['opening_status'] == true) {
+        openingStatusText = 'Open';
+        openingStatusIconColor = Colors.green; // Color from home page style
+      } else {
+        openingStatusText = 'Closed';
+        openingStatusIconColor = Colors.red.shade300; // Color from home page style
+      }
+    }
+
+    // If no valid status, return an empty widget
+    if (!statusAvailable) {
+      return const SizedBox.shrink();
+    }
+
+    // Build the Row widget to match the home page style
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0), // Add some padding around the section
+      child: Row(
+        // mainAxisSize: MainAxisSize.min, // REMOVED: This was preventing the Padding from being effective.
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF7F59).withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.access_time_filled,
+              color: openingStatusIconColor,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            openingStatusText,
+            style: TextStyle(
+              fontFamily: 'SofiaSans',
+              fontSize: 16,
+              color: openingStatusIconColor,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRatingSection() {
     final dynamic numRatings = widget.restaurant['number_of_ratings'] ?? widget.restaurant['user_ratings_total'];
 
     return Row(
       children: [
-        const Icon(
-          Icons.star,
-          color: Colors.amber,
-          size: 24,
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFF7F59).withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.star,
+            color: Colors.amber,
+            size: 20,
+          ),
         ),
         const SizedBox(width: 8),
         Text(
           '${widget.restaurant['rating'] ?? 4.5}',
           style: const TextStyle(
             fontFamily: 'SofiaSans',
-            fontSize: 18,
+            fontSize: 16,
             fontWeight: FontWeight.bold,
             color: Colors.black,
           ),
@@ -225,7 +454,7 @@ class _ViewRestaurantScreenState extends State<ViewRestaurantScreen> {
             priceRangeText, // Display the determined RM range
             style: TextStyle(
               fontFamily: 'SofiaSans',
-              fontSize: 20,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
               color: const Color(0xFFFF7F59), // Color from your example
             ),
@@ -235,7 +464,7 @@ class _ViewRestaurantScreenState extends State<ViewRestaurantScreen> {
     );
   }
   
-Widget _buildCategoryTags() {
+  Widget _buildCategoryTags() {
     // Ensure 'categories' is a List<String> for type safety with Text widget
     final List<dynamic> rawCategories = widget.restaurant['categories'] ?? ['HALAL', 'VEGETARIAN', 'FAST FOOD'];
     final List<String> categories = rawCategories.map((category) => category.toString()).toList();
@@ -276,13 +505,18 @@ Widget _buildCategoryTags() {
     String openingHoursText = 'Opening hours not available'; // Default
     final dynamic openingHoursData = restaurant['opening_hours'];
 
-    if (openingHoursData != null && openingHoursData is List && openingHoursData.isNotEmpty) {
-      // Check if the list contains strings
-      try {
-        final List<String> hoursList = openingHoursData.map((item) => item.toString()).toList();
-        openingHoursText = hoursList.join('\n');
-      } catch (e) {
-        openingHoursText = 'Error displaying opening hours';
+    // Handle both Map (from Google Places) and List (from backend) formats
+    if (openingHoursData != null) {
+      if (openingHoursData is Map && openingHoursData['weekday_text'] is List) {
+        final List<dynamic> hoursListRaw = openingHoursData['weekday_text'];
+        openingHoursText = hoursListRaw.map((item) => item.toString()).join('\n');
+      } else if (openingHoursData is List && openingHoursData.isNotEmpty) {
+        try {
+          final List<String> hoursList = openingHoursData.map((item) => item.toString()).toList();
+          openingHoursText = hoursList.join('\n');
+        } catch (e) {
+          openingHoursText = 'Error displaying opening hours';
+        }
       }
     }
 
@@ -325,26 +559,11 @@ Widget _buildCategoryTags() {
             Icons.phone,
             phoneNumber,
             isClickable: true,
-            onTap: () => _launchURL('tel:$phoneNumber'),
+            onTap: () => _launchPhoneIfAvailable(phoneNumber),
           ),
-          // No SizedBox needed after the last item if it's conditional
         ],
       ],
     );
-  }
-
-  // Assume _launchURL is defined in your state class like this:
-  Future<void> _launchURL(String urlString) async {
-    final Uri url = Uri.parse(urlString);
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not launch $urlString')),
-        );
-      }
-    }
   }
 
   Widget _buildInfoRow(IconData icon, String text, {bool isClickable = false, VoidCallback? onTap}) {
@@ -394,7 +613,7 @@ Widget _buildCategoryTags() {
   Widget _buildBottomActions() {
     return Container(
       color: Colors.transparent,
-      // padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: SafeArea(
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -402,7 +621,7 @@ Widget _buildCategoryTags() {
             // WhatsApp/Phone button
             _buildPngActionButton(
               assetPath: 'assets/images/view_whatsapp.png',
-              onTap: () => _launchURL('tel:0382130100'),
+              onTap: _launchWhatsApp,
             ),
             // Favourite button (toggle)
             _buildPngActionButton(
@@ -410,16 +629,33 @@ Widget _buildCategoryTags() {
                   ? 'assets/images/view_favourite.png'
                   : 'assets/images/view_unfavourite.png',
               onTap: () {
-                setState(() {
-                  isFavorite = !isFavorite;
-                });
+                // Call the function to handle the database logic and state change.
+                _toggleFavourite();
               },
               isActive: isFavorite,
             ),
             // Navigation button
             _buildPngActionButton(
               assetPath: 'assets/images/view_navigate.png',
-              onTap: () => _launchURL('https://maps.google.com/?q=Taco+Bell+Cyberjaya'),
+              onTap: () {
+                final String? address = widget.restaurant['address'];
+                final String? name = widget.restaurant['name'];
+                final String? mapsUrl = widget.restaurant['maps_url'] ?? widget.restaurant['url'];
+                String urlString;
+
+                if (mapsUrl != null && mapsUrl.isNotEmpty) {
+                  urlString = mapsUrl;
+                } else if (address != null && address.isNotEmpty) {
+                  // Use the Google Maps driving directions format with double slash
+                  final destination = Uri.encodeComponent('${name ?? ''}, $address');
+                  urlString = 'https://www.google.com/maps/dir//$destination?travelmode=driving';
+                } else {
+                  // Fallback: open Google Maps
+                  urlString = 'https://maps.google.com/';
+                }
+
+                _launchURL(urlString);
+              },
             ),
           ],
         ),
@@ -471,7 +707,7 @@ Widget _buildCategoryTags() {
       context,
       MaterialPageRoute(
         builder: (context) => ReviewScreen(
-          restaurantName: restaurantName,
+          restaurant: widget.restaurant, // Pass the full restaurant data
         ),
       ),
     );

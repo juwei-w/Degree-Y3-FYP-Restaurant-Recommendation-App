@@ -1,9 +1,13 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'feedback_screen.dart';
 import 'home_screen.dart';
 import 'view_restaurant_screen.dart';
 import 'profile_screen.dart';
 import 'recommend_screen.dart';
+import '../services/restaurant_data_service.dart'; // Import the new service
 
 class FavouritesScreen extends StatefulWidget {
   const FavouritesScreen({super.key});
@@ -13,87 +17,68 @@ class FavouritesScreen extends StatefulWidget {
 }
 
 class _FavouritesScreenState extends State<FavouritesScreen> {
-  // Sample favorite restaurant data
-  final List<Map<String, dynamic>> favouriteRestaurants = [
-    {
-      'name': 'McDonald\'s',
-      'image': 'assets/images/tacos.png',
-      'rating': 4.5,
-      'reviews': 154,
-      'freeDelivery': true,
-      'deliveryTime': '10-15 mins',
-      'categories': ['BURGER', 'CHICKEN', 'FAST FOOD'],
-      'isFavorite': true,
-      'isVerified': true,
-      'address': '123 Main Street',
-      'operatingHours': 'Operating Hours',
-    },
-    {
-      'name': 'McDonald\'s',
-      'image': 'assets/images/pizza.png',
-      'rating': 4.5,
-      'reviews': 154,
-      'freeDelivery': true,
-      'deliveryTime': '10-15 mins',
-      'categories': ['BURGER', 'CHICKEN', 'FAST FOOD'],
-      'isFavorite': true,
-      'isVerified': true,
-      'address': '123 Main Street',
-      'operatingHours': 'Operating Hours',
-    },
-    {
-      'name': 'McDonald\'s',
-      'image': 'assets/images/tacos.png',
-      'rating': 4.5,
-      'reviews': 154,
-      'freeDelivery': true,
-      'deliveryTime': '10-15 mins',
-      'categories': ['BURGER', 'CHICKEN', 'FAST FOOD'],
-      'isFavorite': true,
-      'isVerified': true,
-      'address': '123 Main Street',
-      'operatingHours': 'Operating Hours',
-    },
-    {
-      'name': 'McDonald\'s',
-      'image': 'assets/images/pizza.png',
-      'rating': 4.5,
-      'reviews': 154,
-      'freeDelivery': true,
-      'deliveryTime': '10-15 mins',
-      'categories': ['BURGER', 'CHICKEN', 'FAST FOOD'],
-      'isFavorite': true,
-      'isVerified': true,
-      'address': '123 Main Street',
-      'operatingHours': 'Operating Hours',
-    },
-    {
-      'name': 'McDonald\'s',
-      'image': 'assets/images/tacos.png',
-      'rating': 4.5,
-      'reviews': 154,
-      'freeDelivery': true,
-      'deliveryTime': '10-15 mins',
-      'categories': ['BURGER', 'CHICKEN', 'FAST FOOD'],
-      'isFavorite': true,
-      'isVerified': true,
-      'address': '123 Main Street',
-      'operatingHours': 'Operating Hours',
-    },
-    {
-      'name': 'McDonald\'s',
-      'image': 'assets/images/tacos.png',
-      'rating': 4.5,
-      'reviews': 154,
-      'freeDelivery': true,
-      'deliveryTime': '10-15 mins',
-      'categories': ['HALAL', 'VEGETARIAN', 'FAST FOOD'],
-      'isFavorite': true,
-      'isVerified': true,
-      'address': 'Address',
-      'operatingHours': 'Operating Hours',
-    },
-  ];
+  bool _isLoading = true;
+  List<Map<String, dynamic>> favouriteRestaurants = [];
+  String? apiKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadApiKeyAndFetchFavourites();
+  }
+
+  Future<void> _loadApiKeyAndFetchFavourites() async {
+    apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
+    await _fetchFavourites();
+  }
+
+  Future<void> _fetchFavourites() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+      return;
+    }
+
+    try {
+      final userDoc =
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (mounted && userDoc.exists && userDoc.data()?['favourites'] != null) {
+        final favouritesData = List<dynamic>.from(userDoc.data()!['favourites']);
+        setState(() {
+          favouriteRestaurants =
+              favouritesData.map((fav) => Map<String, dynamic>.from(fav)).toList();
+        });
+      }
+    } catch (e) {
+      // Handle or log error
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _toggleFavourite(Map<String, dynamic> restaurant) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+    // On this screen, toggling always means removing from favourites.
+    await userDocRef.update({
+      'favourites': FieldValue.arrayRemove([restaurant])
+    });
+
+    // Update UI instantly
+    if (mounted) {
+      setState(() {
+        favouriteRestaurants
+            .removeWhere((fav) => fav['place_id'] == restaurant['place_id']);
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -124,7 +109,8 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
                       ],
                     ),
                     child: IconButton(
-                      icon: const Icon(Icons.arrow_back_ios_new, size: 22, color: Colors.black),
+                      icon: const Icon(Icons.arrow_back_ios_new,
+                          size: 22, color: Colors.black),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ),
@@ -174,264 +160,242 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
   }
 
   Widget _buildFavouritesList() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (favouriteRestaurants.isEmpty) {
+      return const Center(
+        child: Text(
+          'No favourite restaurants yet.',
+          style: TextStyle(
+              fontFamily: 'SofiaSans', fontSize: 16, color: Colors.grey),
+        ),
+      );
+    }
+
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
       itemCount: favouriteRestaurants.length,
       itemBuilder: (context, index) {
         final restaurant = favouriteRestaurants[index];
-        final bool isLastItem = index == favouriteRestaurants.length - 1;
-
-        // Wrap the card in GestureDetector to navigate on tap
-        return GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ViewRestaurantScreen(restaurant: restaurant, isFavourite: favouriteRestaurants.contains(restaurant['place_id'] ?? restaurant['name'] ?? ''),),
-              ),
-            );
-          },
-          child: _buildRestaurantCard(restaurant, isLastItem),
-        );
+        return _buildRestaurantCard(restaurant);
       },
     );
   }
 
-  Widget _buildRestaurantCard(Map<String, dynamic> restaurant, bool showDetails) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            spreadRadius: 1,
+  Widget _buildRestaurantCard(Map<String, dynamic> restaurant) {
+    String? photoUrl;
+    if (restaurant['photos'] != null &&
+        restaurant['photos'] is List &&
+        (restaurant['photos'] as List).isNotEmpty) {
+      final photoRef = restaurant['photos'][0];
+      if (apiKey != null) {
+        photoUrl =
+            'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=$photoRef&key=$apiKey';
+      }
+    }
+
+    String openingStatusText = '';
+    Color openingStatusIconColor = Colors.grey;
+    if (restaurant.containsKey('opening_status')) {
+      if (restaurant['opening_status'] == true) {
+        openingStatusText = 'Open';
+        openingStatusIconColor = Colors.green;
+      } else if (restaurant['opening_status'] == false) {
+        openingStatusText = 'Closed';
+        openingStatusIconColor = Colors.red.shade300;
+      }
+    }
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ViewRestaurantScreen(
+              restaurant: restaurant,
+              isFavourite: true, // Always true on this screen
+            ),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Restaurant image
-          Stack(
-            children: [
-              // Image
-              ClipRRect(
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(16),
-                  topRight: Radius.circular(16),
-                ),
-                child: Image.asset(
-                  restaurant['image'],
-                  height: 150,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              
-              // Rating badge
-              Positioned(
-                top: 10,
-                left: 10,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.star,
-                        color: Colors.amber,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${restaurant['rating']}',
-                        style: const TextStyle(
-                          fontFamily: 'SofiaSans',
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '(${restaurant['reviews']})',
-                        style: TextStyle(
-                          fontFamily: 'SofiaSans',
-                          fontSize: 10,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              
-              // Favorite button
-              Positioned(
-                top: 10,
-                right: 10,
-                child: Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    icon: Icon(
-                      restaurant['isFavorite'] ? Icons.favorite : Icons.favorite_border,
-                      color: const Color(0xFFFF7F59),
-                    ),
-                    iconSize: 20,
-                    constraints: const BoxConstraints(
-                      minWidth: 30,
-                      minHeight: 30,
-                    ),
-                    padding: EdgeInsets.zero,
-                    onPressed: () {
-                      setState(() {
-                        restaurant['isFavorite'] = !restaurant['isFavorite'];
-                      });
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-          
-          // Restaurant info
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16.0),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
               children: [
-                // Name and verified badge
-                Row(
-                  children: [
-                    Text(
-                      restaurant['name'],
-                      style: const TextStyle(
-                        fontFamily: 'SofiaSans',
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (restaurant['isVerified'])
-                      Container(
-                        margin: const EdgeInsets.only(left: 4),
-                        padding: const EdgeInsets.all(2),
-                        decoration: const BoxDecoration(
-                          color: Colors.blue,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.check,
-                          color: Colors.white,
-                          size: 10,
-                        ),
-                      ),
-                  ],
+                ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                  ),
+                  child: photoUrl != null
+                      ? Image.network(
+                          photoUrl,
+                          height: 150,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Image.asset('assets/images/profile.png',
+                                  height: 150,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover),
+                        )
+                      : Image.asset('assets/images/profile.png',
+                          height: 150, width: double.infinity, fit: BoxFit.cover),
                 ),
-                
-                // Show address and operating hours for the last item
-                if (showDetails) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    restaurant['address'],
-                    style: TextStyle(
-                      fontFamily: 'SofiaSans',
-                      fontSize: 12,
-                      color: Colors.grey[600],
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.star, color: Colors.amber, size: 16),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${restaurant['rating'] ?? '-'}',
+                          style: const TextStyle(
+                            fontFamily: 'SofiaSans',
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '(${restaurant['user_ratings_total'] ?? '-'})',
+                          style: TextStyle(
+                            fontFamily: 'SofiaSans',
+                            fontSize: 10,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    restaurant['operatingHours'],
-                    style: TextStyle(
-                      fontFamily: 'SofiaSans',
-                      fontSize: 12,
-                      color: Colors.grey[600],
+                ),
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.favorite,
+                        color: Color(0xFFFF7F59),
+                      ),
+                      iconSize: 20,
+                      constraints:
+                          const BoxConstraints(minWidth: 30, minHeight: 30),
+                      padding: EdgeInsets.zero,
+                      onPressed: () async {
+                        await _toggleFavourite(restaurant);
+                      },
                     ),
                   ),
-                  const SizedBox(height: 8),
-                ] else ...[
-                  const SizedBox(height: 4),
-                  
-                  // Delivery info
-                  Row(
-                    children: [
-                      if (restaurant['freeDelivery'])
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.local_shipping_outlined,
-                              color: Color(0xFFFF7F59),
-                              size: 14,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Free delivery',
-                              style: TextStyle(
-                                fontFamily: 'SofiaSans',
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
-                      const SizedBox(width: 16),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.access_time,
-                            color: Color(0xFFFF7F59),
-                            size: 14,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            restaurant['deliveryTime'],
-                            style: TextStyle(
-                              fontFamily: 'SofiaSans',
-                              fontSize: 12,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  
-                  const SizedBox(height: 8),
-                ],
-                
-                // Categories
-                Row(
-                  children: (restaurant['categories'] as List<String>).map((category) {
-                    return Container(
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        category,
-                        style: TextStyle(
-                          fontFamily: 'SofiaSans',
-                          fontSize: 10,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                    );
-                  }).toList(),
                 ),
               ],
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    restaurant['name'] ?? 'Unknown',
+                    style: const TextStyle(
+                      fontFamily: 'SofiaSans',
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  if (openingStatusText.isNotEmpty)
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.access_time_filled,
+                          color: openingStatusIconColor,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          openingStatusText,
+                          style: TextStyle(
+                            fontFamily: 'SofiaSans',
+                            fontSize: 12,
+                            color: openingStatusIconColor,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  // const SizedBox(height: 8),
+                  // if (restaurant['address'] != null)
+                  //   Text(
+                  //     restaurant['address'],
+                  //     style: TextStyle(
+                  //       fontFamily: 'SofiaSans',
+                  //       fontSize: 12,
+                  //       color: Colors.grey[600],
+                  //     ),
+                  //     maxLines: 2,
+                  //     overflow: TextOverflow.ellipsis,
+                  //   ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8.0,
+                    runSpacing: 4.0,
+                    children:
+                        (restaurant['categories'] as List<dynamic>?)?.map((category) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  category.toString().toUpperCase(),
+                                  style: TextStyle(
+                                    fontFamily: 'SofiaSans',
+                                    fontSize: 10,
+                                    color: Colors.grey[700],
+                                  ),
+                                ),
+                              );
+                            }).toList() ??
+                            [],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -495,7 +459,7 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
       MaterialPageRoute(builder: (context) => const HomeScreen()),
     );
   }
-  
+
   void _navigateToFeedback(BuildContext context) {
     Navigator.push(
       context,
@@ -510,11 +474,18 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
     );
   }
 
-  void _navigateToRecommend(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const RecommendScreen()),
-    );
+  void _navigateToRecommend(BuildContext context) async {
+    // Ensure the data is loaded before navigating.
+    final restaurants = RestaurantDataService.instance.getRestaurants();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              RecommendScreen(restaurants: restaurants, user: user),
+        ),
+      );
+    }
   }
-
 }

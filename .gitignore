@@ -43,3 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Node.js related
+node_modules/
+venv/
+.env
+functions/
+firebase_key.json
+django_project/assets/

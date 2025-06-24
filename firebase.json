@@ -1,0 +1,39 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "restaurant-recommendatio-24c81",
+          "appId": "1:326120752538:android:ae84a2cd29b2821b4ca623",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "restaurant-recommendatio-24c81",
+          "configurations": {
+            "android": "1:326120752538:android:ae84a2cd29b2821b4ca623",
+            "ios": "1:326120752538:ios:f06ddda6bb873b7e4ca623",
+            "macos": "1:326120752538:ios:f06ddda6bb873b7e4ca623",
+            "web": "1:326120752538:web:662863c40edb97e64ca623",
+            "windows": "1:326120752538:web:c33d27fa075ffd164ca623"
+          }
+        }
+      }
+    }
+  },              
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "runtime": "nodejs22"
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:smart_food_v1/screens/home_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class FeedbackScreen extends StatefulWidget {
   const FeedbackScreen({super.key});
@@ -10,11 +12,58 @@ class FeedbackScreen extends StatefulWidget {
 
 class _FeedbackScreenState extends State<FeedbackScreen> {
   final TextEditingController _feedbackController = TextEditingController();
+  double _rating = 0; // Add this for star rating
 
   @override
   void dispose() {
     _feedbackController.dispose();
     super.dispose();
+  }
+
+  Future<void> _submitFeedback(String feedbackText) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Fetch user name from Firestore
+    String? userName;
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    if (userDoc.exists) {
+      userName = userDoc.data()?['name'] ?? '';
+    }
+
+    final feedbackData = {
+      'user_id': user.uid,
+      'user_name': userName ?? '',
+      'feedback': feedbackText,
+      'rating': _rating, // Save the rating
+      'resolved': false,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+
+    // Add a new document to the 'feedback' collection
+    await FirebaseFirestore.instance.collection('feedback').add(feedbackData);
+  }
+
+  // Add this widget for star rating selection
+  Widget _buildStarRating() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(5, (index) {
+        final starIndex = index + 1;
+        return IconButton(
+          icon: Icon(
+            _rating >= starIndex ? Icons.star : Icons.star_border,
+            color: Color(0xFFFF7F59),
+            size: 32,
+          ),
+          onPressed: () {
+            setState(() {
+              _rating = starIndex.toDouble();
+            });
+          },
+        );
+      }),
+    );
   }
 
   @override
@@ -95,6 +144,9 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                     ),
                   ),
                   const SizedBox(height: 30),
+                  // Star rating widget
+                  _buildStarRating(),
+                  const SizedBox(height: 16),
                   // Feedback text field
                   Container(
                     decoration: BoxDecoration(
@@ -126,20 +178,18 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                       width: 250,
                       height: 56,
                       child: ElevatedButton(
-                        onPressed: () {
-                          if (_feedbackController.text.isNotEmpty) {
+                        onPressed: () async {
+                          if (_feedbackController.text.trim().isNotEmpty) {
+                            await _submitFeedback(_feedbackController.text.trim());
+                            // Optionally show a success message or clear the input
+                            _feedbackController.clear();
+                            setState(() {
+                              _rating = 0; // Reset the star rating after submitting
+                            });
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Thank you for your feedback!'),
-                                backgroundColor: Color(0xFFFF7F59),
-                              ),
-                            );
-                            _navigateToHome(context);
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Please write your feedback before submitting.'),
-                                backgroundColor: Colors.red,
+                              SnackBar(
+                                content: Text('Feedback submitted!'),
+                                backgroundColor: Colors.orangeAccent,
                               ),
                             );
                           }
