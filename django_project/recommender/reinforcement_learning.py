@@ -1,13 +1,6 @@
 import numpy as np
 import random
 from collections import deque
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from tensorflow.keras.optimizers import Adam
-import os
-import json
-# --- NEW IMPORTS ---
-from firebase_admin import firestore
 import numpy as np
 
 
@@ -17,6 +10,15 @@ ACTION_SIZE = 4  # like, dislike, click, skip
 
 class DQNAgent:
     def __init__(self, state_size, action_size, user_id):
+        # Import TensorFlow/Keras only when an agent is created
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.layers import Dense
+        from tensorflow.keras.optimizers import Adam
+
+        self.Sequential = Sequential
+        self.Dense = Dense
+        self.Adam = Adam
+
         self.state_size = state_size
         self.action_size = action_size
         self.memory = deque(maxlen=2000)
@@ -34,11 +36,11 @@ class DQNAgent:
         """
         Builds a new DQN model.
         """
-        model = Sequential()
-        model.add(Dense(64, input_dim=self.state_size, activation='relu'))
-        model.add(Dense(32, activation='relu'))
-        model.add(Dense(self.action_size, activation='linear'))
-        model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
+        model = self.Sequential()
+        model.add(self.Dense(64, input_dim=self.state_size, activation='relu'))
+        model.add(self.Dense(32, activation='relu'))
+        model.add(self.Dense(self.action_size, activation='linear'))
+        model.compile(loss='mse', optimizer=self.Adam(learning_rate=self.learning_rate))
         return model
 
     def remember(self, state, action, reward, next_state, done):

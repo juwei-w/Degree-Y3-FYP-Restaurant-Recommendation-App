@@ -7,7 +7,6 @@ from .get_restaurants import get_nearby_recommend_restaurants_logic
 from .content_based import get_content_based_recommendations
 from .collaborative import get_collaborative_filtering_recommendations
 from .hybrid import get_hybrid_recommendations
-from .reinforcement_learning import DQNAgent, extract_rl_features
 from .constants import CATEGORY_KEYS
 import sys
 
@@ -75,9 +74,11 @@ def record_feedback(request):
     Receives feedback from the user, trains the RL model, and saves it.
     """
     try:
+        from .reinforcement_learning import DQNAgent, extract_rl_features  # <-- Move import here
+
         data = json.loads(request.body)
         user_id = data.get('user_id')
-        restaurant_data = data.get('restaurant_data') # Get the full object
+        restaurant_data = data.get('restaurant_data')
         action = data.get('action')
 
         if not all([user_id, restaurant_data, action]):
@@ -112,6 +113,7 @@ def record_feedback(request):
 
         # 5. Save the updated model back to Firestore
         agent.save_model_to_firestore()
+        del agent  # Clean up the agent instance
 
         return JsonResponse({'status': 'success', 'message': 'Feedback recorded and model updated.'})
 
