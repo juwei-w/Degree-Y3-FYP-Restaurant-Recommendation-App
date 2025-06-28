@@ -76,7 +76,7 @@ class _ViewRestaurantScreenState extends State<ViewRestaurantScreen> {
     }
   }
 
-  /// Launches WhatsApp with the restaurant's phone number.
+  /// Launches WhatsApp with the restaurant's phone number and a preset booking message.
   Future<void> _launchWhatsApp() async {
     final String? phoneNumber = widget.restaurant['phone_number'] as String?;
 
@@ -93,12 +93,24 @@ class _ViewRestaurantScreenState extends State<ViewRestaurantScreen> {
       return;
     }
 
-    String formattedNumber = phoneNumber.replaceAll(RegExp(r'\D'), '');
+    String formattedNumber = phoneNumber.replaceAll(RegExp(r'\\D'), '');
     if (formattedNumber.startsWith('0')) {
-      formattedNumber = '60${formattedNumber.substring(1)}';
+      formattedNumber = '60${formattedNumber.substring(1)}'; // Malaysia country code
     }
 
-    final String whatsappUrl = 'https://wa.me/$formattedNumber';
+    // Prepare preset message: "Hi, I would like to book a table at [restaurant name] for [time]."
+    final String restaurantName = widget.restaurant['name'] ?? 'your restaurant';
+    final DateTime now = DateTime.now();
+    final DateTime bookingTime = now.add(const Duration(hours: 1));
+    // Format time as 12-hour with AM/PM
+    final int hour = bookingTime.hour % 12 == 0 ? 12 : bookingTime.hour % 12;
+    final String minute = bookingTime.minute.toString().padLeft(2, '0');
+    final String period = bookingTime.hour >= 12 ? 'PM' : 'AM';
+    final String formattedTime = "$hour:$minute $period";
+    final String message = "Hi, I would like to book a table at $restaurantName for $formattedTime.";
+    final String encodedMessage = Uri.encodeComponent(message);
+
+    final String whatsappUrl = 'https://wa.me/$formattedNumber?text=$encodedMessage';
     final String telUrl = 'tel:$phoneNumber';
 
     try {
