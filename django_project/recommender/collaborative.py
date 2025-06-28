@@ -4,6 +4,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
 from collections import defaultdict
+from django.conf import settings
 import os
 import json
 
@@ -14,19 +15,15 @@ import json
 # Initialize Firebase Admin SDK only if it hasn't been initialized yet.
 # This prevents errors during hot-reloading in Django's development server.
 if not firebase_admin._apps:
-    # Construct an absolute path to the firebase_key.json file,
-    # assuming it is in the same directory as this script.
-    key_path = os.path.join(os.path.dirname(__file__), 'firebase_key.json')
-    if os.path.exists(key_path):
-        cred = credentials.Certificate(key_path)
-        firebase_admin.initialize_app(cred)
+    cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS)
+    firebase_admin.initialize_app(cred)
+else:
+    # Fallback for environments where the key might be configured differently
+    # For example, using environment variables on a server
+    if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
+            firebase_admin.initialize_app()
     else:
-        # Fallback for environments where the key might be configured differently
-        # For example, using environment variables on a server
-        if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
-             firebase_admin.initialize_app()
-        else:
-            print("WARNING: Firebase credentials not found. Collaborative filtering may not work.")
+        print("WARNING: Firebase credentials not found. Collaborative filtering may not work.")
 
 
 def _get_all_user_favorites():

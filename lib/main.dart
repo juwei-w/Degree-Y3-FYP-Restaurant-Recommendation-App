@@ -22,8 +22,8 @@ Future<void> main() async {
 
     // Attempt to sign in as admin
     UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-      email: "payardmmu@gmail.com",
-      password: "payardmmu",
+      email: "payardgt@gmail.com",
+      password: "payard",
     );
     user = userCredential.user;
     if (user != null) {
@@ -98,7 +98,7 @@ class MyApp extends StatelessWidget {
       ),
       debugShowCheckedModeBanner: false,
       // Always go to AdminHomeScreen if auto-login is successful
-      home: isAutoLoginSuccessful ? const AdminHomeScreen() : HomeScreen(),
+      home: isAutoLoginSuccessful ? const HomeScreen() : AdminHomeScreen(),
     );
   }
 }

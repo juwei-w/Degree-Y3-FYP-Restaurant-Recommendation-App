@@ -15,6 +15,8 @@ import os
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Path to Firebase credentials
+FIREBASE_CREDENTIALS = os.path.join(BASE_DIR, 'firebase_key.json')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/3.0/howto/deployment/checklist/
@@ -25,8 +27,12 @@ SECRET_KEY = 'x2!t%bl9lcp)psf*z@mdv(0d*1w8r8wb6o#p!xxp1tu4!+qf)i'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['192.168.0.4', 'localhost', '127.0.0.1']  # Added your IP address
-
+ALLOWED_HOSTS = [
+    "degree-y3-fyp-restaurant-recommendation.onrender.com",
+    "localhost",
+    "127.0.0.1",
+    "192.168.0.4",
+]
 
 # Application definition
 

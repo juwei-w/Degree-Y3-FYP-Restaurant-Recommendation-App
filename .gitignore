@@ -49,5 +49,8 @@ node_modules/
 venv/
 .env
 functions/
-firebase_key.json
+django_project/firebase_key.json
 django_project/assets/
+linux/
+winndows/
+macos/
