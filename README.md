@@ -40,6 +40,37 @@ The app is designed for both end-users seeking dining options and administrators
 - **Admin Analytics:** Insights into user activity, preferences, and system performance for admins.
 - **Reservation Module:** WhatsApp integration for direct, pre-filled restaurant bookings.
 
+## Figma Design
+
+### User Interface Overview
+<div align="center">
+  <img src="Figma/Welcome.png" alt="Welcome Screen" width="200"/>
+  <img src="Figma/Login.png" alt="Login Screen" width="200"/>
+  <img src="Figma/Register.png" alt="Register Screen" width="200"/>
+  <img src="Figma/Select Preferences.png" alt="Select Preferences" width="200"/>
+  <img src="Figma/Food Restrictions.png" alt="Food Restrictions" width="200"/>
+  <img src="Figma/Home Screen.png" alt="Home Screen" width="200"/>
+</div>
+
+### Core Features
+<div align="center">
+  <img src="Figma/Recommend.png" alt="AI Recommendations" width="200"/>
+  <img src="Figma/Nearby Restaurants.png" alt="Nearby Restaurants" width="200"/>
+  <img src="Figma/View Restaurant.png" alt="Restaurant Details" width="200"/>
+  <img src="Figma/Favourites.png" alt="Favorites List" width="200"/>
+  <img src="Figma/Profile.png" alt="User Profile" width="200"/>
+  <img src="Figma/Feedback.png" alt="User Feedback" width="200"/>
+</div>
+
+
+### Admin Dashboard
+<div align="center">
+  <img src="Figma/Admin Menu.png" alt="Admin Menu" width="200"/>
+  <img src="Figma/Analytics and Report.png" alt="Analytics Dashboard" width="200"/>
+  <img src="Figma/User Managementws.png" alt="User Management" width="200"/>
+  <img src="Figma/Feedback Management.png" alt="Feedback Management" width="200"/>
+</div>
+
 
 
 ## Setup Instructions
