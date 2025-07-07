@@ -78,7 +78,7 @@ The app is designed for both end-users seeking dining options and administrators
   ```env
   GOOGLE_MAPS_API_KEY=your_google_maps_api_key
   API_BASE_URL=your_backend_url (e.g. http://localhost:8000 or https://xxxx.ngrok-free.app)
-  DJANGO_ALLOWED_HOSTS=(e.g. localhost,127.0.0.1,xxxx.ngrok-free.app)
+  DJANGO_ALLOWED_HOSTS=allowed_host_1,allowed_host_2 (e.g. localhost,127.0.0.1,xxxx.ngrok-free.app)
   SEARCH_RADIUS=5000 (5km)
   ```
 - Make sure your API_BASE_URL matches your Django server's public URL (e.g., ngrok URL).
