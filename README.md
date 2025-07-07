@@ -71,23 +71,22 @@ The app is designed for both end-users seeking dining options and administrators
 - Click the **Generate new private key** button under the Firebase Admin SDK section.
 - Confirm and download the JSON file.
 - Rename the downloaded file to `firebase_key.json`.
-- Place it in `django_project/firebase_key.json` (this file is ignored by git for security).
+- Place it in the project root directory as `firebase_key.json` (this file is ignored by git for security).
 
 ### 3. Environment Variables
 - Create or edit the `.env` file in the project root with the following keys:
   ```env
   GOOGLE_MAPS_API_KEY=your_google_maps_api_key
-  API_BASE_URL=your_backend_url (e.g. http://localhost:8000 or https://xxxx.ngrok-free.app)
-  DJANGO_ALLOWED_HOSTS=allowed_host_1,allowed_host_2 (e.g. localhost,127.0.0.1,xxxx.ngrok-free.app)
+  API_BASE_URL=http://localhost:8000 (e.g. http://localhost:8000 or https://xxxx.ngrok-free.app)
+  DJANGO_ALLOWED_HOSTS=localhost,(your_ip_address_optional) (e.g. localhost,127.0.0.1,xxxx.ngrok-free.app)
   SEARCH_RADIUS=5000 (5km)
   ```
 - Make sure your API_BASE_URL matches your Django server's public URL (e.g., ngrok URL).
 - You can add or remove hosts in `DJANGO_ALLOWED_HOSTS` as needed for your deployment.
 
 ### 4. Django Setup
-- Navigate to the backend folder and run migrations:
+- Run migrations from the project root:
   ```sh
-  cd django_project
   python manage.py migrate
   ```
 - Start the Django server:
