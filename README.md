@@ -1,16 +1,26 @@
 # Restaurant Recommendation App
 
+Video demo: https://youtu.be/jZIOe2IKxpY
+
+---
+
 ## Project Overview
 
 With the explosion of information on the internet, users often face decision fatigue and information overload—especially when it comes to choosing where and what to eat. This project addresses these challenges by providing an AI-powered, location-based restaurant recommendation system that delivers fast, personalized, and context-aware suggestions to users. The app leverages both explicit (user ratings, preferences) and implicit (behavioral patterns) data, and integrates privacy-preserving mechanisms to ensure user trust and data security.
+
+---
 
 ### Motivation
 - Helps users make quick, informed, and healthy dining decisions, even with dietary restrictions or in unfamiliar locations.
 - Reduces stress and time spent on food choices, and encourages healthier eating habits.
 - Addresses common issues in recommendation systems such as the cold-start problem, data sparsity, and privacy concerns.
 
+---
+
 ### Problem Statement
 Choosing what and where to eat is often overwhelming due to the abundance of options, personal preferences, dietary restrictions, and privacy concerns. Many people experience decision fatigue, unhealthy eating, or dissatisfaction with their choices. Existing systems often lack true personalization, context-awareness, or privacy guarantees.
+
+---
 
 ### Project Objectives
 1. **Personalized Restaurant Recommendations:**
@@ -22,6 +32,8 @@ Choosing what and where to eat is often overwhelming due to the abundance of opt
 4. **AI-Driven Feedback Loop:**
    - Continuously improves recommendations based on user feedback (like, unlike, skip, view).
 
+---
+
 ### Project Scope
 - **UI/UX:** Figma-based, intuitive, and visually appealing design.
 - **Backend:** Django for business logic, APIs, and secure data processing.
@@ -32,6 +44,8 @@ Choosing what and where to eat is often overwhelming due to the abundance of opt
 
 The app is designed for both end-users seeking dining options and administrators managing restaurant data and analytics.
 
+---
+
 ### Key Modules and Features
 - **User Authentication:** Secure login/registration using Firebase, with role-based access for users and admins.
 - **Restaurant Search & Listing:** Retrieve, search, and display restaurant data, including favorites and detailed views.
@@ -39,6 +53,35 @@ The app is designed for both end-users seeking dining options and administrators
 - **Location-Based Services:** Google Maps API for real-time suggestions and navigation.
 - **Admin Analytics:** Insights into user activity, preferences, and system performance for admins.
 - **Reservation Module:** WhatsApp integration for direct, pre-filled restaurant bookings.
+
+---
+
+## Tech Stack
+- Frontend: Flutter (Dart)
+- Backend: Django (Python)
+- Database / Authentication: Firebase
+- Maps & geolocation: Google Maps API
+- ML / Recommender: Python modules inside `recommender/`
+
+---
+
+## Architecture
+High level:
+
+```
+Mobile App (Flutter)
+   ↕ HTTPS / REST
+Django API (manage.py, REST endpoints)
+   ↕ Database (SQLite in repo / PostgreSQL recommended)
+Recommender components (recommender/)
+External: Firebase auth & storage, Google Maps API, WhatsApp link
+```
+
+Key notes:
+- The recommender logic lives in `recommender/` and is consumed by Django views/endpoints.
+- The mobile app calls the API defined by Django (see `urls.py` and `recommender/views.py`).
+
+---
 
 ## Figma Design
 
@@ -52,6 +95,8 @@ The app is designed for both end-users seeking dining options and administrators
   <img src="Figma/Home Screen.png" alt="Home Screen" width="200"/>
 </div>
 
+---
+
 ### Core Features
 <div align="center">
   <img src="Figma/Recommend.png" alt="AI Recommendations" width="200"/>
@@ -62,6 +107,7 @@ The app is designed for both end-users seeking dining options and administrators
   <img src="Figma/Feedback.png" alt="User Feedback" width="200"/>
 </div>
 
+---
 
 ### Admin Dashboard
 <div align="center">
@@ -71,7 +117,7 @@ The app is designed for both end-users seeking dining options and administrators
   <img src="Figma/Feedback Management.png" alt="Feedback Management" width="200"/>
 </div>
 
-
+---
 
 ## Setup Instructions
 
@@ -95,6 +141,8 @@ The app is designed for both end-users seeking dining options and administrators
   pip install -r requirements.txt
   ```
 
+---
+
 ### 2. Firebase Setup
 - Go to the [Firebase Console](https://console.firebase.google.com/) and select your project.
 - Click the ⚙️ gear icon next to "Project Overview" and select **Project settings**.
@@ -103,6 +151,8 @@ The app is designed for both end-users seeking dining options and administrators
 - Confirm and download the JSON file.
 - Rename the downloaded file to `firebase_key.json`.
 - Place it in the project root directory as `firebase_key.json` (this file is ignored by git for security).
+
+---
 
 ### 3. Environment Variables
 - Create or edit the `.env` file in the project root with the following keys:
@@ -114,6 +164,8 @@ The app is designed for both end-users seeking dining options and administrators
   ```
 - Make sure your API_BASE_URL matches your Django server's public URL (e.g., ngrok URL).
 - You can add or remove hosts in `DJANGO_ALLOWED_HOSTS` as needed for your deployment.
+
+---
 
 ### 4. Django Setup
 - Run migrations from the project root:
@@ -129,6 +181,8 @@ The app is designed for both end-users seeking dining options and administrators
   ngrok http 8000
   ```
   Use the HTTPS forwarding URL from ngrok as your `API_BASE_URL` and add it to `DJANGO_ALLOWED_HOSTS` in your `.env` file.
+
+---
 
 ### 5. Flutter Setup (Frontend)
 - Connect your phone via USB and enable developer mode to run and debug the app on your device.
